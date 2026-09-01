@@ -4,6 +4,7 @@ import type { StdioServerHandle } from '@modelcontextprotocol/server/stdio';
 
 import type { ErrorReporter } from './shared/logging.js';
 import { stderrReporter } from './shared/logging.js';
+import { createServices } from './services.js';
 import { startHttp } from './transport/http.js';
 import { startStdio } from './transport/stdio.js';
 
@@ -34,11 +35,26 @@ export async function startRuntime(
   config: AppConfig,
   reporter: ErrorReporter = stderrReporter,
 ): Promise<RuntimeHandle> {
-  const dependencies = { config };
+  const services = await createServices(config);
+  const dependencies = { config, reporter, services };
   if (config.transport === 'stdio') {
-    return wrapStdio(startStdio(dependencies, reporter));
+    const handle = wrapStdio(startStdio(dependencies, reporter));
+    return {
+      address: handle.address,
+      async close(): Promise<void> {
+        await handle.close();
+        await services.close();
+      },
+    };
   }
-  return wrapHttp(await startHttp(dependencies, reporter));
+  const handle = wrapHttp(await startHttp(dependencies, reporter));
+  return {
+    address: handle.address,
+    async close(): Promise<void> {
+      await handle.close();
+      await services.close();
+    },
+  };
 }
 
 export function installShutdownHandlers(

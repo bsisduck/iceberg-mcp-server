@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { AppConfig } from '../../src/config.js';
 import type { ErrorReporter } from '../../src/shared/logging.js';
+import type { Services } from '../../src/services.js';
+import { createServices } from '../../src/services.js';
 import type { HttpServerHandle } from '../../src/transport/http.js';
 import { startHttp } from '../../src/transport/http.js';
 
-const handles: HttpServerHandle[] = [];
+const handles: { readonly http: HttpServerHandle; readonly services: Services }[] = [];
 const reporter: ErrorReporter = {
   report(): void {
     // Tests assert HTTP responses; transport errors are not expected here.
@@ -41,13 +43,35 @@ function testConfig(overrides: Partial<AppConfig['http']> = {}): AppConfig {
 }
 
 async function start(config: AppConfig = testConfig()): Promise<HttpServerHandle> {
-  const handle = await startHttp({ config }, reporter);
-  handles.push(handle);
+  const services = await createServices(config);
+  const handle = await startHttp({ config, reporter, services }, reporter);
+  handles.push({ http: handle, services });
   return handle;
 }
 
+async function mcpPost(address: URL, message: object): Promise<Record<string, unknown>> {
+  const response = await fetch(address, {
+    body: JSON.stringify(message),
+    headers: {
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json',
+      origin: 'http://127.0.0.1',
+    },
+    method: 'POST',
+  });
+  expect(response.status).toBe(200);
+  const text = await response.text();
+  const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
+  return JSON.parse(dataLine?.slice(6) ?? text) as Record<string, unknown>;
+}
+
 afterEach(async (): Promise<void> => {
-  await Promise.all(handles.splice(0).map(async (handle) => handle.close()));
+  await Promise.all(
+    handles.splice(0).map(async ({ http, services }) => {
+      await http.close();
+      await services.close();
+    }),
+  );
 });
 
 describe('HTTP transport', (): void => {
@@ -153,5 +177,33 @@ describe('HTTP transport', (): void => {
     const response = await fetch(new URL('/not-mcp', handle.address));
 
     expect(response.status).toBe(404);
+  });
+
+  it('advertises typed API tools and calls a documentation-only tool', async (): Promise<void> => {
+    const handle = await start();
+    const listed = await mcpPost(handle.address, {
+      id: 2,
+      jsonrpc: '2.0',
+      method: 'tools/list',
+      params: {},
+    });
+    const listResult = listed['result'] as { tools: { name: string }[] };
+    expect(listResult.tools.map((tool) => tool.name)).toContain('iceberg_api_get_type');
+    expect(listResult.tools).toHaveLength(9);
+
+    const called = await mcpPost(handle.address, {
+      id: 3,
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'iceberg_api_list_versions' },
+    });
+    const callResult = called['result'] as {
+      structuredContent: { count: number; items: { kind: string }[] };
+    };
+    expect(callResult.structuredContent.count).toBe(2);
+    expect(callResult.structuredContent.items.map((item) => item.kind)).toEqual([
+      'release',
+      'nightly',
+    ]);
   });
 });

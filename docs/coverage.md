@@ -4,18 +4,18 @@ Status legend: planned, implemented, contract-tested, protocol-tested.
 
 ## Java API and source coverage
 
-| Surface                           | Provider evidence                             | MCP capability                                              | Status  |
-| --------------------------------- | --------------------------------------------- | ----------------------------------------------------------- | ------- |
-| Available Javadoc/source versions | Configured providers and source Git identity  | `iceberg_api_list_versions`                                 | planned |
-| Packages                          | `package-search-index.js`                     | `iceberg_api_browse`, package resource                      | planned |
-| Types                             | `type-search-index.js`, type HTML             | `iceberg_api_search`, `iceberg_api_get_type`, type resource | planned |
-| Members and overloads             | `member-search-index.js`, member details HTML | `iceberg_api_search`, `iceberg_api_get_member`              | planned |
-| Deprecation/inheritance/details   | Type HTML                                     | `iceberg_api_get_type`, `iceberg_api_get_member`            | planned |
-| Cross-version additions/removals  | Two immutable published index sets            | `iceberg_api_compare_versions`                              | planned |
-| Source module/path/revision       | Configured checkout index                     | `iceberg_source_get_type`, source resource                  | planned |
-| Literal source evidence           | Configured production Java files              | `iceberg_source_search`                                     | planned |
-| Implementations/extensions        | Javadoc inheritance plus lexical declarations | `iceberg_source_find_implementations`                       | planned |
-| Stability classification          | Source module and upstream RevAPI module set  | Included in type/source results                             | planned |
+| Surface                           | Provider evidence                             | MCP capability                                              | Status      |
+| --------------------------------- | --------------------------------------------- | ----------------------------------------------------------- | ----------- |
+| Available Javadoc/source versions | Configured providers and source Git identity  | `iceberg_api_list_versions`                                 | implemented |
+| Packages                          | `package-search-index.js`                     | `iceberg_api_browse`, package resource                      | implemented |
+| Types                             | `type-search-index.js`, type HTML             | `iceberg_api_search`, `iceberg_api_get_type`, type resource | implemented |
+| Members and overloads             | `member-search-index.js`, member details HTML | `iceberg_api_search`, `iceberg_api_get_member`              | implemented |
+| Deprecation/inheritance/details   | Type HTML                                     | `iceberg_api_get_type`, `iceberg_api_get_member`            | implemented |
+| Cross-version additions/removals  | Two immutable published index sets            | `iceberg_api_compare_versions`                              | implemented |
+| Source module/path/revision       | Configured checkout index                     | `iceberg_source_get_type`, source resource                  | implemented |
+| Literal source evidence           | Configured production Java files              | `iceberg_source_search`                                     | implemented |
+| Implementations/extensions        | Javadoc inheritance plus lexical declarations | `iceberg_source_find_implementations`                       | implemented |
+| Stability classification          | Source module and upstream RevAPI module set  | Included in type/source results                             | implemented |
 
 The matrix covers the full index rather than a curated class list. Pagination, filtering, and output
 budgets are part of each capability's contract.
