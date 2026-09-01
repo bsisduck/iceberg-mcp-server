@@ -301,8 +301,13 @@ export class SourceProvider {
       throw new NotFoundError(`Java type not found: ${fullyQualifiedName}`);
     }
     const index = await this.loadIndex();
+    const target = this.#resolveRecord(index, fullyQualifiedName);
+    if (!target.declarationNames.includes(simpleName)) {
+      throw new NotFoundError(`Java source type not found: ${fullyQualifiedName}`);
+    }
+    const escapedName = simpleName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     const declaration = new RegExp(
-      `\\b(?:extends|implements)\\s+[^\\n{;]*\\b${simpleName}\\b`,
+      `\\b(?:extends|implements)\\s+[^\\n{;]*\\b${escapedName}\\b`,
       'u',
     );
     const boundedLimit = Math.min(limit, 200);

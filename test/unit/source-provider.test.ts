@@ -87,6 +87,9 @@ describe('SourceProvider', (): void => {
     expect(first).toMatchObject({ hasMore: true, items: [{ line: 2 }] });
     expect(second).toMatchObject({ hasMore: false, items: [{ line: 3 }] });
     await expect(provider.search('Table', 1, 3)).rejects.toThrow(/beyond/u);
+    await expect(provider.findImplementations('org.apache.iceberg.*')).rejects.toThrow(
+      /not found/u,
+    );
   });
 
   it('does not follow directory symlinks', async (): Promise<void> => {
