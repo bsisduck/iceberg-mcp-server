@@ -26,7 +26,8 @@
     "evaluations/evaluations.xml",
     "LICENSE",
     "README.md",
-    "SECURITY.md"
+    "SECURITY.md",
+    "src"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
