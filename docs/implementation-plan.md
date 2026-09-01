@@ -74,14 +74,14 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
 
 | Claim family | Required evidence | State | Next action |
 | --- | --- | --- | --- |
-| Latest API/version | Official release/docs plus local source | Open | Compare live docs, tags, and checkout revision |
-| Java API surface | Official Javadoc indexes plus local source | Open | Map modules, packages, types, members, and sources |
-| REST endpoint inventory | Versioned official OpenAPI document | Open | Parse paths, operations, schemas, and security |
-| Authentication | OpenAPI plus REST catalog auth docs/tests | Open | Trace OAuth and credential vending behavior |
-| Commit semantics | OpenAPI plus implementation/tests | Open | Inspect requirements, updates, and status codes |
-| Pagination | OpenAPI plus implementation/tests | Open | Trace page-token behavior per list endpoint |
-| MCP protocol | Current MCP spec and SDK API | Open | Verify transports, structured output, auth, errors |
-| Operational security | Official standards and threat models | Open | Derive deployment and client-side controls |
+| Latest API/version | Official release/docs plus local source | Supported | 1.11.0 release and newer local main are distinct providers |
+| Java API surface | Official Javadoc indexes plus local source | Supported | 98 packages, 1,761 types, and 15,306 members in 1.11.0 |
+| REST endpoint inventory | Versioned official OpenAPI document | Supported | 32 release operations; 35 on current main |
+| Authentication | OpenAPI plus REST catalog auth docs/tests | Supported | Internal Bearer/OAuth; bundled token route deprecated |
+| Commit semantics | OpenAPI plus implementation/tests | Supported | Typed requirements/updates and conflict-preserving errors |
+| Pagination | OpenAPI plus implementation/tests | Supported | Empty-token start; missing/null next token terminates |
+| MCP protocol | Current MCP spec and SDK API | Supported | SDK v2 and 2026-07-28 serving entries selected |
+| Operational security | Official standards and threat models | Supported | Path, origin, SSRF, credential, and output controls derived |
 
 ## Verification policy
 
