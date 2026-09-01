@@ -203,5 +203,5 @@ recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-Apache License 2.0. Apache Iceberg is a trademark of The Apache Software Foundation; this
-independent server is not an Apache Software Foundation project.
+MIT License. Apache Iceberg is a trademark of The Apache Software Foundation; this independent
+server is not an Apache Software Foundation project.

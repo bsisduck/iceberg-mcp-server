@@ -140,8 +140,7 @@ The completion audit added or verified controls for:
 
 - The root README explains scope, setup, client installation, configuration, verification, security
   boundaries, contribution rules, and licensing.
-- `LICENSE` and `package.json` both specify Apache License 2.0. The project does not contain an MIT
-  license.
+- `LICENSE`, `package.json`, and the root package-lock entry all specify the MIT License.
 - Contribution, security-reporting, conduct, and changelog files are present and included in the
   package archive.
 - GitHub CI runs the full quality gate, including coverage thresholds, and the client-template
