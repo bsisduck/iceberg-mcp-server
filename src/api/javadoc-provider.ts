@@ -36,8 +36,26 @@ function decodeBody(body: Uint8Array, label: string): string {
 export class JavadocProvider {
   readonly #baseUrl: URL;
   readonly #fetcher: BoundedFetcher;
-  readonly #indexCaches = new Map<string, AsyncTtlCache<JavadocIndex>>();
-  readonly #pageCaches = new Map<string, AsyncTtlCache<TypeDocumentation>>();
+  readonly #nightlyIndexCache = new AsyncTtlCache<JavadocIndex>({
+    maxEntries: 1,
+    negativeTtlMs: 10_000,
+    ttlMs: versionTtl('nightly'),
+  });
+  readonly #nightlyPageCache = new AsyncTtlCache<TypeDocumentation>({
+    maxEntries: 32,
+    negativeTtlMs: 10_000,
+    ttlMs: versionTtl('nightly'),
+  });
+  readonly #releaseIndexCache = new AsyncTtlCache<JavadocIndex>({
+    maxEntries: 8,
+    negativeTtlMs: 10_000,
+    ttlMs: versionTtl('1.0.0'),
+  });
+  readonly #releasePageCache = new AsyncTtlCache<TypeDocumentation>({
+    maxEntries: 128,
+    negativeTtlMs: 10_000,
+    ttlMs: versionTtl('1.0.0'),
+  });
 
   public constructor(options: JavadocProviderOptions) {
     this.#baseUrl = new URL(options.config.baseUrl);
@@ -51,14 +69,10 @@ export class JavadocProvider {
   }
 
   public clear(): void {
-    for (const cache of this.#indexCaches.values()) {
-      cache.clear();
-    }
-    for (const cache of this.#pageCaches.values()) {
-      cache.clear();
-    }
-    this.#indexCaches.clear();
-    this.#pageCaches.clear();
+    this.#nightlyIndexCache.clear();
+    this.#nightlyPageCache.clear();
+    this.#releaseIndexCache.clear();
+    this.#releasePageCache.clear();
   }
 
   public rootUrl(version: string): URL {
@@ -69,7 +83,7 @@ export class JavadocProvider {
   public async loadIndex(version: string, signal?: AbortSignal): Promise<JavadocIndex> {
     this.#assertVersion(version);
     const cache = this.#indexCache(version);
-    return cache.getOrLoad('index', async () => {
+    return cache.getOrLoad(version, async () => {
       const root = this.rootUrl(version);
       const [packages, types, members] = await Promise.all([
         this.#loadIndexFile(root, 'package-search-index.js', 512_000, signal),
@@ -131,28 +145,10 @@ export class JavadocProvider {
   }
 
   #indexCache(version: string): AsyncTtlCache<JavadocIndex> {
-    let cache = this.#indexCaches.get(version);
-    if (cache === undefined) {
-      cache = new AsyncTtlCache({
-        maxEntries: 1,
-        negativeTtlMs: 10_000,
-        ttlMs: versionTtl(version),
-      });
-      this.#indexCaches.set(version, cache);
-    }
-    return cache;
+    return version === 'nightly' ? this.#nightlyIndexCache : this.#releaseIndexCache;
   }
 
   #pageCache(version: string): AsyncTtlCache<TypeDocumentation> {
-    let cache = this.#pageCaches.get(version);
-    if (cache === undefined) {
-      cache = new AsyncTtlCache({
-        maxEntries: 128,
-        negativeTtlMs: 10_000,
-        ttlMs: versionTtl(version),
-      });
-      this.#pageCaches.set(version, cache);
-    }
-    return cache;
+    return version === 'nightly' ? this.#nightlyPageCache : this.#releasePageCache;
   }
 }
