@@ -142,6 +142,7 @@ export class BoundedFetcher {
         }
         const contentType = response.headers.get('content-type') ?? '';
         if (!contentTypeMatches(contentType, options.acceptedContentTypes)) {
+          cancelBody(response);
           throw new UpstreamError(
             'Upstream returned an unexpected content type',
             response.status,
@@ -150,6 +151,7 @@ export class BoundedFetcher {
         }
         const declaredLength = response.headers.get('content-length');
         if (declaredLength !== null && Number(declaredLength) > options.maxBytes) {
+          cancelBody(response);
           throw new LimitError(`Upstream response exceeds ${options.maxBytes} bytes`);
         }
         const body = await this.#readBody(response, options.maxBytes);

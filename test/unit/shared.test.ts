@@ -175,6 +175,57 @@ describe('BoundedFetcher', (): void => {
     ).rejects.toThrow(/exceeds/u);
   });
 
+  it('cancels bodies rejected before streaming', async (): Promise<void> => {
+    const contentTypeCancel = vi.fn();
+    const declaredLengthCancel = vi.fn();
+    const responses = [
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel: contentTypeCancel,
+          start(controller): void {
+            controller.enqueue(new TextEncoder().encode('html'));
+          },
+        }),
+        { headers: { 'content-type': 'text/html' } },
+      ),
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel: declaredLengthCancel,
+          start(controller): void {
+            controller.enqueue(new TextEncoder().encode('large'));
+          },
+        }),
+        { headers: { 'content-length': '100', 'content-type': 'text/plain' } },
+      ),
+    ];
+    const bounded = new BoundedFetcher({
+      allowedBaseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+      concurrency: 1,
+      fetch: (): Promise<Response> =>
+        Promise.resolve(responses.shift() ?? new Response('unexpected')),
+      timeoutMs: 1_000,
+      userAgent: 'test',
+    });
+
+    await expect(
+      bounded.get(new URL('https://iceberg.apache.org/javadoc/content-type'), {
+        acceptedContentTypes: ['text/plain'],
+        maxBytes: 10,
+        retries: 0,
+      }),
+    ).rejects.toThrow(/content type/u);
+    await expect(
+      bounded.get(new URL('https://iceberg.apache.org/javadoc/declared-length'), {
+        acceptedContentTypes: ['text/plain'],
+        maxBytes: 10,
+        retries: 0,
+      }),
+    ).rejects.toThrow(/exceeds/u);
+
+    expect(contentTypeCancel).toHaveBeenCalledOnce();
+    expect(declaredLengthCancel).toHaveBeenCalledOnce();
+  });
+
   it('accepts bounded JSON suffix content, empty bodies, and same-root redirects', async (): Promise<void> => {
     const fetch = vi.fn<typeof globalThis.fetch>((input) => {
       const url = new URL(input instanceof Request ? input.url : input);
