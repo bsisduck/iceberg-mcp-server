@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig } from './config.js';
 import { installShutdownHandlers, startRuntime } from './runtime.js';
@@ -21,6 +22,17 @@ Options:
 export interface CliOptions {
   readonly command: 'help' | 'start' | 'version';
   readonly transport: 'http' | 'stdio' | undefined;
+}
+
+export function isMainModule(entryPath: string | undefined, moduleUrl: string): boolean {
+  if (entryPath === undefined) {
+    return false;
+  }
+  try {
+    return realpathSync(entryPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return pathToFileURL(entryPath).href === moduleUrl;
+  }
 }
 
 export function parseArgs(args: readonly string[]): CliOptions {
@@ -69,7 +81,7 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 }
 
 const entryPath = process.argv[1];
-if (entryPath !== undefined && pathToFileURL(entryPath).href === import.meta.url) {
+if (isMainModule(entryPath, import.meta.url)) {
   main().catch((error: unknown) => {
     process.stderr.write(`iceberg-mcp-server: ${errorMessage(error)}\n`);
     process.exitCode = 1;

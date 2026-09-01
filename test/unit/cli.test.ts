@@ -1,3 +1,8 @@
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -12,7 +17,7 @@ vi.mock('../../src/runtime.js', () => ({
   startRuntime: mocks.startRuntime,
 }));
 
-import { main, parseArgs, USAGE } from '../../src/cli.js';
+import { isMainModule, main, parseArgs, USAGE } from '../../src/cli.js';
 
 afterEach((): void => {
   vi.clearAllMocks();
@@ -20,6 +25,21 @@ afterEach((): void => {
 });
 
 describe('parseArgs', (): void => {
+  it('recognizes an npm-style symlink as the executable module', async (): Promise<void> => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'iceberg-cli-test-'));
+    const target = path.join(directory, 'cli.js');
+    const link = path.join(directory, 'iceberg-mcp-server');
+    try {
+      await writeFile(target, '');
+      await symlink(target, link);
+
+      expect(isMainModule(link, pathToFileURL(target).href)).toBe(true);
+      expect(isMainModule(undefined, pathToFileURL(target).href)).toBe(false);
+    } finally {
+      await rm(directory, { recursive: true });
+    }
+  });
+
   it('uses start with no transport override by default', (): void => {
     expect(parseArgs([])).toEqual({ command: 'start', transport: undefined });
   });
