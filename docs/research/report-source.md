@@ -135,7 +135,8 @@ implements MCP 2026-07-28, whose core is stateless and whose Streamable HTTP
 transport uses a separate POST per request. The server should use `serveStdio`
 and the v2 HTTP handler factory so protocol-era negotiation is handled by the SDK.
 See the [v2 server package](https://ts.sdk.modelcontextprotocol.io/v2/api/%40modelcontextprotocol/server/),
-[server guide](https://ts.sdk.modelcontextprotocol.io/v2/server/), and
+[tool guide](https://ts.sdk.modelcontextprotocol.io/v2/servers/tools),
+[HTTP serving guide](https://ts.sdk.modelcontextprotocol.io/v2/serving/http), and
 [2026-07-28 migration guidance](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28).
 
 Streamable HTTP servers must validate `Origin`, bind to loopback by default, and

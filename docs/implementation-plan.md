@@ -33,21 +33,21 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
 
 ## Execution plan
 
-- [~] Research and evidence model
+- [x] Research and evidence model
   - Inventory published Java modules, packages, public types/members, Javadoc
     indexes, source mappings, examples, and version-dependent API guarantees.
   - Inventory every REST Catalog operation, schema, auth mechanism, pagination
     contract, commit precondition, and version-dependent capability separately.
   - Reconcile the live `latest` documentation with the local upstream checkout.
   - Record claims, contradictions, confidence, and evidence gaps in a source ledger.
-- [ ] Architecture and threat model
+- [~] Architecture and threat model
   - Define tool domains, resources, prompts, transport boundaries, configuration,
     error taxonomy, response envelopes, output limits, and path/SSRF controls.
   - Produce Java-surface and REST-endpoint coverage matrices and explicit non-goals.
 - [ ] Project foundation
   - Configure strict TypeScript, linting, formatting, tests, package exports,
     executable entry point, environment validation, and reproducible builds.
-- [ ] REST client and protocol infrastructure
+- [ ] Providers and protocol infrastructure
   - Implement safe local-source access, remote Javadoc retrieval and caching,
     HTML/index parsing, search, version identity, and source-link resolution.
   - Implement REST URL construction, prefix handling, auth/token exchange, retries,
