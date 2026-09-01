@@ -51,11 +51,11 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
     search, version identity, and source-link resolution.
   - Implement REST URL construction, prefix handling, auth/token exchange, retries, timeouts,
     cancellation, pagination, structured errors, and response validation.
-- [~] MCP capabilities
+- [x] MCP capabilities
   - Implement complete read and mutation tool families with strict Zod schemas, structured content,
     annotations, concise Markdown/JSON views, and output bounds.
   - Add appropriate MCP resources and prompts without duplicating tool semantics.
-- [ ] Tests and evaluations
+- [~] Tests and evaluations
   - Add unit, contract, transport, error, security, and integration tests against a deterministic
     mock REST Catalog.
   - Create and independently solve ten stable, multi-step, read-only evaluations.

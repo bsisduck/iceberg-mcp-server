@@ -5,6 +5,8 @@ import type { Services } from './services.js';
 import type { ErrorReporter } from './shared/logging.js';
 import { registerApiTools } from './capabilities/api-tools.js';
 import { registerCatalogTools } from './capabilities/catalog-tools.js';
+import { registerPrompts } from './capabilities/prompts.js';
+import { registerResources } from './capabilities/resources.js';
 
 export const SERVER_NAME = 'iceberg-mcp-server';
 export const SERVER_VERSION = '0.1.0';
@@ -40,5 +42,10 @@ export function createIcebergServer(dependencies: ServerDependencies): McpServer
       dependencies.reporter,
     );
   }
+  registerResources(server, {
+    api: dependencies.services.api,
+    catalog: dependencies.services.catalog,
+  });
+  registerPrompts(server, dependencies.config.javadoc.version);
   return server;
 }

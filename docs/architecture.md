@@ -166,7 +166,7 @@ commit conflict is never treated as transient.
 | `iceberg_api_search`                  | Ranked search across names, signatures, and packages        | opaque cursor       | Remote Javadoc reads |
 | `iceberg_api_get_type`                | Retrieve one exact type, details, members, stability, links | member limit/cursor | Remote Javadoc read  |
 | `iceberg_api_get_member`              | Retrieve one exact member/signature and documentation       | no                  | Remote Javadoc read  |
-| `iceberg_api_compare_versions`        | Added/removed/changed API identities between versions       | opaque cursor       | Remote Javadoc reads |
+| `iceberg_api_compare_versions`        | Added and removed API identities between versions           | opaque cursor       | Remote Javadoc reads |
 | `iceberg_source_get_type`             | Return source for one indexed API type                      | line window         | Local read           |
 | `iceberg_source_search`               | Bounded literal search in indexed production Java source    | opaque cursor       | Local reads          |
 | `iceberg_source_find_implementations` | Find declared implementations/extensions of a type          | opaque cursor       | Local reads          |

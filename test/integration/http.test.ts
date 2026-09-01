@@ -300,4 +300,49 @@ describe('HTTP transport', (): void => {
         .operation_id,
     ).toBe('getConfig');
   });
+
+  it('advertises canonical resources and user-selected workflow prompts', async (): Promise<void> => {
+    const handle = await start();
+    const templatesResponse = await mcpPost(handle.address, {
+      id: 7,
+      jsonrpc: '2.0',
+      method: 'resources/templates/list',
+      params: {},
+    });
+    const templates = (
+      templatesResponse['result'] as { resourceTemplates: { uriTemplate: string }[] }
+    ).resourceTemplates;
+    expect(templates.map((template) => template.uriTemplate)).toEqual([
+      'iceberg://api/{version}/package/{package}',
+      'iceberg://api/{version}/type/{type}',
+      'iceberg://source/type/{type}',
+    ]);
+
+    const promptsResponse = await mcpPost(handle.address, {
+      id: 8,
+      jsonrpc: '2.0',
+      method: 'prompts/list',
+      params: {},
+    });
+    const prompts = (promptsResponse['result'] as { prompts: { name: string }[] }).prompts;
+    expect(prompts.map((prompt) => prompt.name)).toEqual([
+      'iceberg-java-usage',
+      'iceberg-api-migration',
+      'iceberg-catalog-investigation',
+    ]);
+
+    const promptResponse = await mcpPost(handle.address, {
+      id: 9,
+      jsonrpc: '2.0',
+      method: 'prompts/get',
+      params: {
+        arguments: { goal: 'Implement a metadata lookup', version: '1.11.0' },
+        name: 'iceberg-java-usage',
+      },
+    });
+    const promptText = (promptResponse['result'] as { messages: { content: { text: string } }[] })
+      .messages[0]?.content.text;
+    expect(promptText).toContain('iceberg_api_search');
+    expect(promptText).toContain('1.11.0');
+  });
 });
