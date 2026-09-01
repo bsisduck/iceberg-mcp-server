@@ -88,7 +88,8 @@ describe('catalog authentication', (): void => {
 
   it.each([
     [json({ error: 'denied' }, 401), /HTTP 401/u],
-    [new Response('{'), /invalid JSON/u],
+    [new Response('{}', { headers: { 'content-type': 'text/plain' } }), /content type/u],
+    [new Response('{', { headers: { 'content-type': 'application/json' } }), /invalid JSON/u],
     [json({ token_type: 'Bearer' }), /invalid response/u],
     [json({ access_token: 'token', token_type: 'MAC' }), /unsupported token type/u],
   ])('rejects malformed OAuth responses %#', async (response, expected): Promise<void> => {

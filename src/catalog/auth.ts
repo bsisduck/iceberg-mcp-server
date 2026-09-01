@@ -124,6 +124,14 @@ class OAuthAuthProvider implements CatalogAuthProvider {
         );
       }
       const text = await readLimitedText(response, 65_536);
+      const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim() ?? '';
+      if (contentType !== 'application/json' && !contentType.endsWith('+json')) {
+        throw new UpstreamError(
+          'OAuth token endpoint returned an unexpected content type',
+          502,
+          false,
+        );
+      }
       let payload: unknown;
       try {
         payload = JSON.parse(text) as unknown;
