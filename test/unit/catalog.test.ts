@@ -98,7 +98,7 @@ describe('catalog operation coverage', (): void => {
       listNamespaces: { cursor: 'opaque', page_size: 25, parent: ['company'] },
       listTables: { cursor: 'opaque', namespace, page_size: 25 },
       listViews: { cursor: 'opaque', namespace, page_size: 25 },
-      loadCredentials: tablePath,
+      loadCredentials: { ...tablePath, plan_id: 'plan-1' },
       loadFunction: { function: 'bucket', namespace },
       loadNamespaceMetadata: { namespace },
       loadTable: { ...tablePath, snapshots: 'refs' },
@@ -171,6 +171,9 @@ describe('catalog operation coverage', (): void => {
       destination: { name: 'events_v2', namespace },
       source: { name: 'events', namespace },
     });
+    expect(calls.find((call) => call.operationId === 'loadCredentials')?.query).toEqual({
+      planId: 'plan-1',
+    });
   });
 });
 
@@ -223,6 +226,46 @@ describe('CatalogClient', (): void => {
         limits: { ...limits, requestTimeoutMs: 1 },
       }),
     ).rejects.toMatchObject({ retryable: true, status: 504 });
+  });
+
+  it('keeps the request deadline active while consuming a response body', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+      const request = new Request(input, init);
+      if (request.url.includes('/v1/config')) {
+        return Promise.resolve(
+          jsonResponse({
+            defaults: {},
+            endpoints: ['POST /v1/{prefix}/namespaces'],
+            overrides: {},
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller): void {
+              init?.signal?.addEventListener(
+                'abort',
+                () => controller.error(new Error('aborted')),
+                { once: true },
+              );
+            },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      );
+    });
+    const client = await CatalogClient.create({
+      config: config(),
+      fetch,
+      limits: { ...limits, requestTimeoutMs: 1 },
+    });
+
+    await expect(
+      client.call({ body: { namespace: ['analytics'] }, operationId: 'createNamespace', path: {} }),
+    ).rejects.toMatchObject({ retryable: true, status: 504 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    client.close();
   });
 
   it('uses default endpoints, safe separator fallback, and redacted merged config', async (): Promise<void> => {

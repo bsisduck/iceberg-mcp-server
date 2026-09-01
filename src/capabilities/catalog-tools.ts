@@ -457,10 +457,11 @@ const DEFINITIONS: readonly CatalogToolDefinition[] = [
     build: (args) => ({
       operationId: 'loadCredentials',
       path: pathFor(args, { table: true }),
+      query: compact({ planId: optionalString(args, 'plan_id') }) as Record<string, string>,
     }),
     description:
-      'Return only credential prefixes and configuration-key scopes; secret credential values never reach the model.',
-    inputSchema: tablePathSchema,
+      'Return only credential prefixes and configuration-key scopes, optionally for a scan plan; secret credential values never reach the model.',
+    inputSchema: tablePathSchema.extend({ plan_id: z.string().min(1).max(2_000).optional() }),
     operationId: 'loadCredentials',
     title: 'Get Iceberg credential scopes',
   },

@@ -354,31 +354,43 @@ export class CatalogClient {
     const attempts = canRetryWithoutKey || idempotencyKey !== undefined ? 3 : 1;
     return this.#semaphore.use(async () => {
       for (let attempt = 0; attempt < attempts; attempt += 1) {
-        const response = await this.#request(operation, url, body, idempotencyKey, signal);
-        if ((response.status === 429 || response.status >= 500) && attempt + 1 < attempts) {
-          await delay(retryAfter(response, attempt), undefined, { signal });
+        const result = await this.#attempt(
+          operation,
+          url,
+          body,
+          idempotencyKey,
+          cursorIdentity,
+          attempt,
+          attempt + 1 < attempts,
+          signal,
+        );
+        if (typeof result === 'number') {
+          await delay(result, undefined, { signal });
           continue;
         }
-        return this.#result(operation, response, cursorIdentity);
+        return result;
       }
       throw new UpstreamError('Catalog retry limit exceeded', 502, false);
     });
   }
 
-  async #request(
+  async #attempt(
     operation: CatalogOperation,
     url: URL,
     body: string | undefined,
     idempotencyKey: string | undefined,
+    cursorIdentity: unknown,
+    attempt: number,
+    canRetry: boolean,
     signal: AbortSignal | undefined,
-  ): Promise<Response> {
+  ): Promise<CatalogResult | number> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#limits.requestTimeoutMs);
     const combined =
       signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]);
     try {
       const authorization = await this.#auth.authorization(combined);
-      return await this.#fetch(url, {
+      const response = await this.#fetch(url, {
         ...(body === undefined ? {} : { body }),
         headers: {
           accept: 'application/json',
@@ -392,6 +404,12 @@ export class CatalogClient {
         redirect: 'error',
         signal: combined,
       });
+      if ((response.status === 429 || response.status >= 500) && canRetry) {
+        const wait = retryAfter(response, attempt);
+        await response.body?.cancel();
+        return wait;
+      }
+      return await this.#result(operation, response, cursorIdentity);
     } catch (error) {
       if (controller.signal.aborted && !signal?.aborted) {
         throw new UpstreamError('Catalog request timed out', 504, true, { cause: error });
