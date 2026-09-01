@@ -381,12 +381,25 @@ describe('ApiService', (): void => {
 
     const matches = await service.searchSource({ limit: 1, literal: 'Table' });
     expect(matches.count).toBe(1);
-    expect(matches.truncated).toBe(true);
+    expect(matches).toMatchObject({ has_more: true, truncated: false });
+    const nextMatches = await service.searchSource({
+      cursor: matches.next_cursor ?? undefined,
+      limit: 1,
+      literal: 'Table',
+    });
+    expect(nextMatches).toMatchObject({ count: 1, has_more: false, next_cursor: null });
     const implementations = await service.findSourceImplementations({
       fullyQualifiedName: 'org.apache.iceberg.Table',
       limit: 1,
     });
     expect(implementations.items[0]?.fullyQualifiedName).toBe('org.apache.iceberg.SparkTable');
+    await expect(
+      service.findSourceImplementations({
+        cursor: matches.next_cursor ?? undefined,
+        fullyQualifiedName: 'org.apache.iceberg.Table',
+        limit: 1,
+      }),
+    ).rejects.toThrow(/does not match/u);
 
     const noSource = new ApiService({ config: config(), javadoc: provider, source: undefined });
     await expect(

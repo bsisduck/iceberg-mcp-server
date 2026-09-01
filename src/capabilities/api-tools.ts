@@ -363,24 +363,18 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
       description:
         'Perform a bounded literal (not regex) search across indexed production Java source files.',
       inputSchema: z.strictObject({
+        cursor: cursorSchema,
         limit: z.number().int().min(1).max(100).default(25),
         literal: z.string().min(2).max(200),
       }),
-      outputSchema: z.union([
-        z.strictObject({
-          count: z.number().int().min(0),
-          items: z.array(sourceMatchSchema),
-          provenance: provenanceSchema,
-          truncated: z.boolean(),
-        }),
-        errorSchema,
-      ]),
+      outputSchema: z.union([pageSchema(sourceMatchSchema), errorSchema]),
       title: 'Search Iceberg Java source',
     },
-    async ({ limit, literal }) =>
+    async ({ cursor, limit, literal }) =>
       executeTool(
-        () => api.searchSource({ limit, literal }),
-        (result) => `Found ${result.count} literal source matches for “${literal}”.`,
+        () => api.searchSource({ cursor, limit, literal }),
+        (result) =>
+          `Found ${result.count} literal source matches for “${literal}”${result.has_more ? '; another page is available.' : '.'}`,
         reporter,
         maxResponseChars,
       ),
@@ -393,25 +387,18 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
       description:
         'Find bounded lexical extends/implements declarations for a Java type; results are evidence, not semantic compiler analysis.',
       inputSchema: z.strictObject({
+        cursor: cursorSchema,
         fully_qualified_name: z.string().min(3).max(1_000),
         limit: z.number().int().min(1).max(100).default(25),
       }),
-      outputSchema: z.union([
-        z.strictObject({
-          count: z.number().int().min(0),
-          items: z.array(sourceMatchSchema),
-          provenance: provenanceSchema,
-          truncated: z.boolean(),
-        }),
-        errorSchema,
-      ]),
+      outputSchema: z.union([pageSchema(sourceMatchSchema), errorSchema]),
       title: 'Find Iceberg source implementations',
     },
-    async ({ fully_qualified_name: fullyQualifiedName, limit }) =>
+    async ({ cursor, fully_qualified_name: fullyQualifiedName, limit }) =>
       executeTool(
-        () => api.findSourceImplementations({ fullyQualifiedName, limit }),
+        () => api.findSourceImplementations({ cursor, fullyQualifiedName, limit }),
         (result) =>
-          `Found ${result.count} lexical implementation declarations for ${fullyQualifiedName}.`,
+          `Found ${result.count} lexical implementation declarations for ${fullyQualifiedName}${result.has_more ? '; another page is available.' : '.'}`,
         reporter,
         maxResponseChars,
       ),

@@ -72,13 +72,21 @@ describe('SourceProvider', (): void => {
     const literalMatches = await provider.search('search-me');
     const implementations = await provider.findImplementations('org.apache.iceberg.Table');
 
-    expect(literalMatches).toHaveLength(1);
-    expect(literalMatches[0]).toMatchObject({ fullyQualifiedName: 'org.apache.iceberg.BaseTable' });
-    expect(implementations).toHaveLength(1);
-    expect(implementations[0]).toMatchObject({
+    expect(literalMatches.items).toHaveLength(1);
+    expect(literalMatches.items[0]).toMatchObject({
+      fullyQualifiedName: 'org.apache.iceberg.BaseTable',
+    });
+    expect(implementations.items).toHaveLength(1);
+    expect(implementations.items[0]).toMatchObject({
       fullyQualifiedName: 'org.apache.iceberg.BaseTable',
       line: 2,
     });
+
+    const first = await provider.search('Table', 1);
+    const second = await provider.search('Table', 1, 1);
+    expect(first).toMatchObject({ hasMore: true, items: [{ line: 2 }] });
+    expect(second).toMatchObject({ hasMore: false, items: [{ line: 3 }] });
+    await expect(provider.search('Table', 1, 3)).rejects.toThrow(/beyond/u);
   });
 
   it('does not follow directory symlinks', async (): Promise<void> => {

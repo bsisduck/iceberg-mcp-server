@@ -1,5 +1,5 @@
 import type { AppConfig } from '../config.js';
-import { decodeCursor, paginate } from '../shared/pagination.js';
+import { decodeCursor, encodeCursor, paginate } from '../shared/pagination.js';
 import { InputError, NotFoundError } from '../shared/errors.js';
 import { JavadocProvider } from './javadoc-provider.js';
 import type {
@@ -96,12 +96,7 @@ export interface SourceResult extends SourceWindow {
   readonly provenance: Provenance;
 }
 
-export interface SourceSearchResult {
-  readonly count: number;
-  readonly items: readonly SourceMatch[];
-  readonly provenance: Provenance;
-  readonly truncated: boolean;
-}
+export type SourceSearchResult = PageEnvelope<SourceMatch>;
 
 export interface ApiServiceOptions {
   readonly config: AppConfig;
@@ -461,46 +456,57 @@ export class ApiService {
   }
 
   public async searchSource(options: {
+    cursor?: string | undefined;
     limit: number;
     literal: string;
   }): Promise<SourceSearchResult> {
     const source = this.#requireSource();
-    const [matches, index] = await Promise.all([
-      source.search(options.literal, options.limit + 1),
+    const query = { kind: 'source-search', literal: options.literal };
+    const offset = decodeCursor(options.cursor, query);
+    const [page, index] = await Promise.all([
+      source.search(options.literal, options.limit, offset),
       source.loadIndex(),
     ]);
-    const truncated = matches.length > options.limit;
     return {
-      count: Math.min(matches.length, options.limit),
-      items: matches.slice(0, options.limit),
+      count: page.items.length,
+      has_more: page.hasMore,
+      items: page.items,
+      next_cursor: page.hasMore ? encodeCursor(offset + page.items.length, query) : null,
       provenance: this.#sourceProvenance(
         index.identity.revision,
         index.identity.root,
         index.loadedAt,
       ),
-      truncated,
+      truncated: false,
     };
   }
 
   public async findSourceImplementations(options: {
+    cursor?: string | undefined;
     fullyQualifiedName: string;
     limit: number;
   }): Promise<SourceSearchResult> {
     const source = this.#requireSource();
-    const [matches, index] = await Promise.all([
-      source.findImplementations(options.fullyQualifiedName, options.limit + 1),
+    const query = {
+      fullyQualifiedName: options.fullyQualifiedName,
+      kind: 'source-implementations',
+    };
+    const offset = decodeCursor(options.cursor, query);
+    const [page, index] = await Promise.all([
+      source.findImplementations(options.fullyQualifiedName, options.limit, offset),
       source.loadIndex(),
     ]);
-    const truncated = matches.length > options.limit;
     return {
-      count: Math.min(matches.length, options.limit),
-      items: matches.slice(0, options.limit),
+      count: page.items.length,
+      has_more: page.hasMore,
+      items: page.items,
+      next_cursor: page.hasMore ? encodeCursor(offset + page.items.length, query) : null,
       provenance: this.#sourceProvenance(
         index.identity.revision,
         index.identity.root,
         index.loadedAt,
       ),
-      truncated,
+      truncated: false,
     };
   }
 

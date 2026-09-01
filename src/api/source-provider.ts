@@ -3,7 +3,7 @@ import { open, opendir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { LimitError, NotFoundError } from '../shared/errors.js';
+import { InputError, LimitError, NotFoundError } from '../shared/errors.js';
 import type { SourceIdentity, SourceIndex, SourceTypeRecord } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -32,6 +32,11 @@ export interface SourceMatch {
   readonly module: string;
   readonly preview: string;
   readonly relativePath: string;
+}
+
+export interface SourceMatchPage {
+  readonly hasMore: boolean;
+  readonly items: readonly SourceMatch[];
 }
 
 function stripCommentsAndStrings(source: string): string {
@@ -248,12 +253,14 @@ export class SourceProvider {
     };
   }
 
-  public async search(literal: string, limit = 50): Promise<readonly SourceMatch[]> {
+  public async search(literal: string, limit = 50, offset = 0): Promise<SourceMatchPage> {
     if (literal.length < 2 || literal.length > 200) {
       throw new LimitError('Source search literal must contain 2 to 200 characters');
     }
     const index = await this.loadIndex();
+    const boundedLimit = Math.min(limit, 200);
     const matches: SourceMatch[] = [];
+    let seen = 0;
     for (const record of index.files) {
       const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
       const lines = source.split(/\r?\n/u);
@@ -261,27 +268,34 @@ export class SourceProvider {
         const line = lines[lineIndex] ?? '';
         const column = line.indexOf(literal);
         if (column !== -1) {
-          matches.push({
-            column: column + 1,
-            fullyQualifiedName: record.fullyQualifiedName,
-            line: lineIndex + 1,
-            module: record.module,
-            preview: line.trim().slice(0, 500),
-            relativePath: record.relativePath,
-          });
-          if (matches.length >= Math.min(limit, 200)) {
-            return matches;
+          if (seen >= offset) {
+            matches.push({
+              column: column + 1,
+              fullyQualifiedName: record.fullyQualifiedName,
+              line: lineIndex + 1,
+              module: record.module,
+              preview: line.trim().slice(0, 500),
+              relativePath: record.relativePath,
+            });
+          }
+          seen += 1;
+          if (matches.length > boundedLimit) {
+            return { hasMore: true, items: matches.slice(0, boundedLimit) };
           }
         }
       }
     }
-    return matches;
+    if (offset > seen) {
+      throw new InputError('Cursor points beyond the available source matches');
+    }
+    return { hasMore: false, items: matches };
   }
 
   public async findImplementations(
     fullyQualifiedName: string,
     limit = 100,
-  ): Promise<readonly SourceMatch[]> {
+    offset = 0,
+  ): Promise<SourceMatchPage> {
     const simpleName = fullyQualifiedName.split('.').at(-1);
     if (simpleName === undefined) {
       throw new NotFoundError(`Java type not found: ${fullyQualifiedName}`);
@@ -291,7 +305,9 @@ export class SourceProvider {
       `\\b(?:extends|implements)\\s+[^\\n{;]*\\b${simpleName}\\b`,
       'u',
     );
+    const boundedLimit = Math.min(limit, 200);
     const matches: SourceMatch[] = [];
+    let seen = 0;
     for (const record of index.files) {
       const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
       const originalLines = source.split(/\r?\n/u);
@@ -300,21 +316,27 @@ export class SourceProvider {
         const line = lines[lineIndex] ?? '';
         const match = declaration.exec(line);
         if (match !== null) {
-          matches.push({
-            column: match.index + 1,
-            fullyQualifiedName: record.fullyQualifiedName,
-            line: lineIndex + 1,
-            module: record.module,
-            preview: originalLines[lineIndex]?.trim().slice(0, 500) ?? '',
-            relativePath: record.relativePath,
-          });
-          if (matches.length >= Math.min(limit, 200)) {
-            return matches;
+          if (seen >= offset) {
+            matches.push({
+              column: match.index + 1,
+              fullyQualifiedName: record.fullyQualifiedName,
+              line: lineIndex + 1,
+              module: record.module,
+              preview: originalLines[lineIndex]?.trim().slice(0, 500) ?? '',
+              relativePath: record.relativePath,
+            });
+          }
+          seen += 1;
+          if (matches.length > boundedLimit) {
+            return { hasMore: true, items: matches.slice(0, boundedLimit) };
           }
         }
       }
     }
-    return matches;
+    if (offset > seen) {
+      throw new InputError('Cursor points beyond the available source matches');
+    }
+    return { hasMore: false, items: matches };
   }
 
   async #buildIndex(): Promise<SourceIndex> {
