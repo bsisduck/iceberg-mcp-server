@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<evaluation>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, begin with the Table factory for an append-only incremental scan, follow the returned scan API to its inherited starting-bound contract, and select the overload for a numeric snapshot ID that excludes that snapshot. What is the exact published member label?</question>
+    <answer>fromSnapshotExclusive(long)</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, start from the Table API used to group multiple updates atomically, inspect the returned transaction contract, and identify the method that applies all pending actions. What is the exact published member label?</question>
+    <answer>commitTransaction()</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, follow Table's schema-evolution entry point. Before changing an existing optional column to required, the documentation says another method must opt into potentially unreadable older files. What is that prerequisite method's exact published label?</question>
+    <answer>allowIncompatibleChanges()</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, investigate the delete-file abstraction and distinguish its data-file reference, blob length, and blob location accessors. Which exact member label returns the starting position of deletion-vector content inside its file?</question>
+    <answer>contentOffset()</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, follow Table's encryption accessor to the encryption manager contract. Which exact published overload accepts multiple encrypted input files so implementations may batch key retrieval rather than decrypt one handle at a time?</question>
+    <answer>decrypt(Iterable&lt;EncryptedInputFile&gt;)</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, locate the table-operation metrics reporter contract, distinguish it from MetricsContext, and inspect its construction lifecycle. After the required no-argument constructor runs, which exact published member label receives the properties that finish reporter initialization?</question>
+    <answer>initialize(Map&lt;String, String&gt;)</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, begin with Table's file-rewrite entry point and inspect the returned rewrite contract. Which exact overload adds a replacement delete file while explicitly preserving a supplied data sequence number?</question>
+    <answer>addFile(DeleteFile, long)</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In Iceberg 1.11.0, follow Table's named snapshot-reference map to SnapshotRef and separate snapshot-retention age from reference-retention age. Which exact accessor reports how long the reference itself may remain?</question>
+    <answer>maxRefAgeMs()</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Using the configured Iceberg checkout at revision 6164440663e3f7b1bae92a1a710ca5233755cd7d, start from the 1.11.0 MetricsReporter contract and inspect lexical production-source implementations. Which fully qualified public top-level implementation is in the stable api module?</question>
+    <answer>org.apache.iceberg.metrics.LoggingMetricsReporter</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Compare exact type identities in package org.apache.iceberg between releases 1.10.1 and 1.11.0. Among the types added in 1.11.0, inspect their documentation and find the interface described as the API for configuring a partition statistics scan. What is its fully qualified name?</question>
+    <answer>org.apache.iceberg.PartitionStatisticsScan</answer>
+  </qa_pair>
+</evaluation>

@@ -55,11 +55,11 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
   - Implement complete read and mutation tool families with strict Zod schemas, structured content,
     annotations, concise Markdown/JSON views, and output bounds.
   - Add appropriate MCP resources and prompts without duplicating tool semantics.
-- [~] Tests and evaluations
+- [x] Tests and evaluations
   - Add unit, contract, transport, error, security, and integration tests against a deterministic
     mock REST Catalog.
   - Create and independently solve ten stable, multi-step, read-only evaluations.
-- [ ] Documentation and packaging
+- [~] Documentation and packaging
   - Document setup, authentication, tools, examples, deployment, security, compatibility,
     troubleshooting, and client configuration.
 - [ ] Completion audit
