@@ -17,12 +17,16 @@
   },
   "files": [
     ".env.example",
+    "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
     "dist",
     "docs",
     "evaluations/README.md",
     "evaluations/evaluations.xml",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "SECURITY.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

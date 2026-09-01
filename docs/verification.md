@@ -128,5 +128,25 @@ The completion audit added or verified controls for:
 - This implementation covers the versioned Apache operations described above, not undocumented
   vendor-specific endpoints or authentication extensions.
 
+## Public repository audit
+
+- The root README explains scope, setup, client installation, configuration, verification, security
+  boundaries, contribution rules, and licensing.
+- `LICENSE` and `package.json` both specify Apache License 2.0. The project does not contain an MIT
+  license.
+- Contribution, security-reporting, conduct, and changelog files are present and included in the
+  package archive.
+- GitHub CI runs the full quality gate and client-template verifier on Node.js 20.19 and 24. The
+  workflow uses read-only permissions and immutable action commit references.
+- Dependabot checks npm and GitHub Actions dependencies weekly.
+- All 18 Markdown files were reviewed with the humanizer rules. Commands, code blocks, links,
+  identifiers, measurements, and technical claims were preserved.
+- The CI YAML was parsed locally and its commands passed on Node.js 22. A hosted CI result is only
+  possible after the repository is published.
+
+The project has no Git remote yet, so `package.json` cannot contain an accurate `repository`,
+`homepage`, or `bugs` URL. Repository badges and host-level private vulnerability reporting also
+depend on that URL and should be configured during publication.
+
 No credentials, generated build directory, dependency directory, package tarball, or other
 regenerable artifact is committed to Git.

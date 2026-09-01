@@ -194,6 +194,13 @@ remaining deployment risks are in the [security model](docs/security.md). Final 
 quality-gate results, and residual risks are recorded in the
 [completion audit](docs/verification.md).
 
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the local development checks and pull request
+requirements. Report vulnerabilities through the private process in [SECURITY.md](SECURITY.md).
+Participation is covered by the [code of conduct](CODE_OF_CONDUCT.md), and release changes are
+recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 Apache License 2.0. Apache Iceberg is a trademark of The Apache Software Foundation; this
