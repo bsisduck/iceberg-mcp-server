@@ -7,6 +7,9 @@ process lifecycle.
 
 The commands and schemas were checked on 2026-09-01 against current primary documentation and the
 locally installed Codex CLI, Claude Code, OpenCode, Gemini CLI, and VS Code command parsers.
+Generated CLI commands use POSIX shell quoting and have been tested on macOS; the same commands are
+intended for Linux. Windows and PowerShell have not been verified. JSON renderers remain available
+for clients whose configuration can be applied directly.
 
 ## Build once
 

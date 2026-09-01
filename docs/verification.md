@@ -50,10 +50,10 @@ Opaque pagination cursors are private to this server and bound to their originat
 
 The final audit ran these repository gates successfully:
 
-- formatting, ESLint, strict TypeScript type checking, tests, and production build through
-  `npm run check`;
-- 122 passing tests across 13 files;
-- 91.92% statement, 86.16% branch, 95.88% function, and 92.14% line coverage;
+- formatting, ESLint, strict TypeScript type checking, coverage-gated tests, and production build
+  through `npm run check`;
+- 123 passing tests across 13 files;
+- 91.94% statement, 86.16% branch, 95.88% function, and 92.15% line coverage;
 - all 10 deterministic, multi-step evaluation cases over a real MCP HTTP session;
 - all 7 generated client formats verified, including JSON parsing, path preservation, shell-safe
   quoting, and absence of secret-bearing fields;
@@ -65,13 +65,15 @@ The final audit ran these repository gates successfully:
   changed by any audit;
 - exact operation-ID reconciliation against both the 32-operation release OpenAPI document and the
   35-operation current document;
-- production tarball creation, installation into a temporary project, executable symlink launch,
-  `--version`, and `--help` smoke tests;
+- production tarball creation, installation into a temporary project, root-export loading,
+  executable symlink launch, `--version`, and `--help` smoke tests;
+- package linting plus resolution of all 60 packed source-map references against included sources;
 - full and production-only npm dependency audits with zero known vulnerabilities;
-- package metadata inspection confirming there is no install-time `prepare` or `postinstall` hook;
-- tracked-file and packed-artifact scans for common private-key, cloud-token, Git-host token, Slack
+- package metadata inspection confirming there is no `install`, `prepare`, or `postinstall` hook;
+- current-file and full Git-history scans for common private-key, cloud-token, Git-host token, Slack
   token, Google API key, JWT, and populated Iceberg secret-variable patterns;
-- Markdown relative-link validation and Git whitespace validation.
+- Markdown relative-link validation, live checks of 24 non-example external links, and Git
+  whitespace validation.
 
 The dependency license inventory contained 185 records with no missing license declaration:
 Apache-2.0 (16), BSD-2-Clause (16), BSD-3-Clause (5), BlueOak-1.0.0 (1), ISC (9), MIT (136), and
@@ -91,10 +93,12 @@ The completion audit added or verified controls for:
 - installed npm executable symlinks;
 - source-file revalidation at read time to narrow time-of-check/time-of-use races;
 - query-bound source evidence pagination and bounded cross-version Javadoc caches;
-- complete upstream response-body deadlines and cancellation of discarded retry bodies;
+- complete upstream response-body deadlines and cancellation of discarded bodies, including
+  responses rejected from their media type or declared length;
 - bounded direct and file-backed secret inputs, redacted diagnostics, and safe error messages;
 - escaped implementation-search terms and exact indexed source targets;
 - OAuth response media-type validation and rejection of redirected token exchanges;
+- a shared release-or-nightly version contract for API tools and workflow prompts;
 - `nosniff` and no-cache response headers on the HTTP transport.
 
 ## Onboarding and context findings closed during follow-up
@@ -110,6 +114,8 @@ The completion audit added or verified controls for:
   reproducible and reviewable.
 - Context growth remains bounded because catalog tools are discovery-gated, mutation tools are
   absent by default, instructions are concise, and large result surfaces require filters/cursors.
+- Published sources now resolve every JavaScript and declaration source-map reference in the npm
+  archive.
 
 ## Residual and deployment-specific risk
 
@@ -127,6 +133,8 @@ The completion audit added or verified controls for:
   structured envelopes reduce exposure but do not make external content authoritative instructions.
 - This implementation covers the versioned Apache operations described above, not undocumented
   vendor-specific endpoints or authentication extensions.
+- Generated client CLI commands use POSIX shell syntax. They were tested on macOS and are intended
+  for Linux; Windows and PowerShell remain unverified.
 
 ## Public repository audit
 
@@ -136,11 +144,13 @@ The completion audit added or verified controls for:
   license.
 - Contribution, security-reporting, conduct, and changelog files are present and included in the
   package archive.
-- GitHub CI runs the full quality gate and client-template verifier on Node.js 20.19 and 24. The
-  workflow uses read-only permissions and immutable action commit references.
+- GitHub CI runs the full quality gate, including coverage thresholds, and the client-template
+  verifier on Node.js 20.19 and 24. The workflow uses read-only permissions and immutable action
+  commit references.
 - Dependabot checks npm and GitHub Actions dependencies weekly.
 - All 18 Markdown files were reviewed with the humanizer rules. Commands, code blocks, links,
-  identifiers, measurements, and technical claims were preserved.
+  identifiers, measurements, and technical claims were preserved; the final documentation diff was
+  checked again after the release audit.
 - The CI YAML was parsed locally and its commands passed on Node.js 22. A hosted CI result is only
   possible after the repository is published.
 

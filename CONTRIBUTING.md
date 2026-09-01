@@ -16,8 +16,8 @@ npm ci
 npm run check
 ```
 
-`npm run check` verifies formatting, lint rules, TypeScript types, tests, and the production build.
-Run the narrower commands while developing when that gives faster feedback:
+`npm run check` verifies formatting, lint rules, TypeScript types, tests, coverage thresholds, and
+the production build. Run the narrower commands while developing when that gives faster feedback:
 
 ```sh
 npm test

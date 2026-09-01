@@ -37,6 +37,7 @@ See [tool and workflow reference](docs/tools.md), [coverage matrix](docs/coverag
 
 - Node.js 20.19 or newer
 - npm
+- macOS or Linux for the generated client CLI commands; Windows has not been verified
 - Network access to `https://iceberg.apache.org/javadoc/` for Javadoc tools
 - Optional: an Apache Iceberg Git checkout for source tools
 - Optional: an Iceberg REST Catalog endpoint for catalog tools
@@ -176,7 +177,6 @@ restart the process after rotating a mounted secret.
 
 ```sh
 npm run check
-npm run test:coverage
 npm run verify:evaluations
 npm run verify:clients
 npm run verify:openapi
