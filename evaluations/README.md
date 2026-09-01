@@ -1,8 +1,8 @@
 # Read-only MCP evaluations
 
 `evaluations.xml` contains ten independent, multi-hop questions with single string-comparable
-answers. They are pinned to immutable Iceberg Javadocs. Evaluation 9 additionally pins the local
-source checkout to revision `6164440663e3f7b1bae92a1a710ca5233755cd7d`.
+answers. They are pinned to immutable Iceberg Javadocs. Evaluation 9 also pins the local source
+checkout to revision `6164440663e3f7b1bae92a1a710ca5233755cd7d`.
 
 Run the independent protocol verifier from the repository root:
 

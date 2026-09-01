@@ -6,8 +6,8 @@ Target: Apache Iceberg Java API plus the separate REST Catalog protocol
 
 ## Executive answer
 
-The supplied URL is the Iceberg Java API guide for the current 1.11.0 release, not an HTTP API. A
-faithful MCP server therefore needs two clearly separated capability planes:
+The supplied URL is the Iceberg Java API guide for the current 1.11.0 release, not an HTTP API. An
+MCP server for this project therefore needs two separate capability planes:
 
 1. A documentation and source-intelligence plane that indexes published Javadoc packages, types, and
    members, resolves API types to source, compares versions, and exposes bounded search and
@@ -178,7 +178,6 @@ TypeScript SDK documentation, and live npm package metadata. Follow-up compared 
 current REST operations, counted the published Javadoc indexes, and traced auth, pagination,
 idempotency, and stable API module rules into upstream source.
 
-Broad discovery stops here because all architecture-shaping claims have primary evidence and further
-generic searches would be redundant. Remaining questions are implementation-verifiable: exact SDK
-signatures, HTML parser behavior, endpoint schema generation, and mock-catalog contracts will be
-resolved against installed package types and executable tests.
+The recorded architecture claims have primary sources. Implementation work resolved the remaining
+questions against installed package types and executable tests, including SDK signatures, HTML
+parser behavior, endpoint schema generation, and mock catalog contracts.

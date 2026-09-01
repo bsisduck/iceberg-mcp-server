@@ -1,11 +1,10 @@
 # Apache Iceberg MCP Server
 
-A production-oriented Model Context Protocol server for Apache Iceberg Java API intelligence and
+A Model Context Protocol server for Apache Iceberg Java API documentation, source lookup, and
 optional REST Catalog operations.
 
-The supplied Iceberg [`latest/api`](https://iceberg.apache.org/docs/latest/api/) page documents the
-Java libraries; it is not a callable HTTP API. This server therefore exposes two deliberately
-separate planes:
+The Iceberg [`latest/api`](https://iceberg.apache.org/docs/latest/api/) page documents the Java
+libraries; it is not a callable HTTP API. This server therefore exposes two separate planes:
 
 - a read-only plane over official release/nightly Javadocs and an optional local Iceberg source
   checkout;
@@ -16,9 +15,9 @@ configures a catalog and explicitly enables mutations.
 
 ## What is included
 
-- Complete indexed Javadoc discovery rather than a curated class list: packages, types, members,
-  exact detail lookup, and cross-version comparison.
-- Safe local source evidence by fully qualified Java type, bounded literal search, lexical
+- Indexed Javadoc discovery across the published package, type, and member lists, with exact detail
+  lookup and cross-version comparison.
+- Local source evidence limited to indexed Java types, bounded literal search, lexical
   implementation discovery, Git provenance, and module stability classification.
 - Inventory coverage of all 32 Iceberg 1.11.0 REST operations: 30 typed model-callable mappings and
   two deliberately excluded credential-bearing operations. Three current-main extensions are
@@ -31,8 +30,8 @@ configures a catalog and explicitly enables mutations.
   other JSON-configured MCP clients.
 
 See [tool and workflow reference](docs/tools.md), [coverage matrix](docs/coverage.md), and
-[architecture](docs/architecture.md) for the exact surface. The complete supported workflow catalog
-is in [user stories and use cases](docs/user-stories.md).
+[architecture](docs/architecture.md) for the exact surface. Supported workflows are listed in
+[user stories and use cases](docs/user-stories.md).
 
 ## Requirements
 
@@ -149,25 +148,25 @@ troubleshooting.
 
 ## Configuration
 
-| Variable                           | Default                                   | Purpose                                     |
-| ---------------------------------- | ----------------------------------------- | ------------------------------------------- |
-| `ICEBERG_JAVADOC_VERSION`          | `1.11.0`                                  | Default release semver or `nightly`         |
-| `ICEBERG_JAVADOC_BASE_URL`         | official Iceberg Javadoc root             | HTTPS operator-controlled root              |
-| `ICEBERG_SOURCE_DIR`               | valid sibling `../iceberg`, else disabled | Local Iceberg checkout                      |
-| `ICEBERG_CATALOG_URI`              | unset                                     | REST Catalog root; HTTPS outside loopback   |
-| `ICEBERG_CATALOG_WAREHOUSE`        | unset                                     | Warehouse sent only during config discovery |
-| `ICEBERG_CATALOG_TOKEN[_FILE]`     | unset                                     | Outbound catalog bearer token               |
-| `ICEBERG_OAUTH2_URI`               | unset                                     | External OAuth token endpoint               |
-| `ICEBERG_OAUTH2_CREDENTIAL[_FILE]` | unset                                     | OAuth `client_id:client_secret`             |
-| `ICEBERG_CATALOG_ALLOW_MUTATIONS`  | `false`                                   | Register catalog mutation tools             |
-| `ICEBERG_MCP_TRANSPORT`            | `stdio`                                   | `stdio` or `http`                           |
-| `ICEBERG_MCP_HOST`                 | `127.0.0.1`                               | HTTP bind host                              |
-| `ICEBERG_MCP_PORT`                 | `3000`                                    | HTTP bind port                              |
-| `ICEBERG_MCP_ALLOWED_ORIGINS`      | loopback origins for the port             | Comma-separated exact origins               |
-| `ICEBERG_MCP_AUTH_TOKEN[_FILE]`    | unset                                     | Inbound HTTP bearer token                   |
-| `ICEBERG_MCP_MAX_REQUEST_BYTES`    | `1048576`                                 | HTTP request limit, 4 KiB–10 MiB            |
-| `ICEBERG_MAX_RESPONSE_CHARS`       | `30000`                                   | Tool/resource output limit, 4,096–100,000   |
-| `ICEBERG_REQUEST_TIMEOUT_MS`       | `15000`                                   | Upstream timeout, 1,000–120,000 ms          |
+| Variable                           | Default                                   | Purpose                                      |
+| ---------------------------------- | ----------------------------------------- | -------------------------------------------- |
+| `ICEBERG_JAVADOC_VERSION`          | `1.11.0`                                  | Default release semver or `nightly`          |
+| `ICEBERG_JAVADOC_BASE_URL`         | official Iceberg Javadoc root             | HTTPS operator-controlled root               |
+| `ICEBERG_SOURCE_DIR`               | valid sibling `../iceberg`, else disabled | Local Iceberg checkout                       |
+| `ICEBERG_CATALOG_URI`              | unset                                     | REST Catalog root; HTTPS outside loopback    |
+| `ICEBERG_CATALOG_WAREHOUSE`        | unset                                     | Warehouse sent only during config discovery  |
+| `ICEBERG_CATALOG_TOKEN[_FILE]`     | unset                                     | Outbound catalog bearer token                |
+| `ICEBERG_OAUTH2_URI`               | unset                                     | External OAuth token endpoint                |
+| `ICEBERG_OAUTH2_CREDENTIAL[_FILE]` | unset                                     | OAuth `client_id:client_secret`              |
+| `ICEBERG_CATALOG_ALLOW_MUTATIONS`  | `false`                                   | Register catalog mutation tools              |
+| `ICEBERG_MCP_TRANSPORT`            | `stdio`                                   | `stdio` or `http`                            |
+| `ICEBERG_MCP_HOST`                 | `127.0.0.1`                               | HTTP bind host                               |
+| `ICEBERG_MCP_PORT`                 | `3000`                                    | HTTP bind port                               |
+| `ICEBERG_MCP_ALLOWED_ORIGINS`      | loopback origins for the port             | Comma-separated exact origins                |
+| `ICEBERG_MCP_AUTH_TOKEN[_FILE]`    | unset                                     | Inbound HTTP bearer token                    |
+| `ICEBERG_MCP_MAX_REQUEST_BYTES`    | `1048576`                                 | HTTP request limit, 4 KiB to 10 MiB          |
+| `ICEBERG_MAX_RESPONSE_CHARS`       | `30000`                                   | Tool/resource output limit, 4,096 to 100,000 |
+| `ICEBERG_REQUEST_TIMEOUT_MS`       | `15000`                                   | Upstream timeout, 1,000 to 120,000 ms        |
 
 `_FILE` is available for the three secret values and is preferred in deployed environments.
 Supplying both the direct value and its file form is an error. Secrets are loaded at startup, so

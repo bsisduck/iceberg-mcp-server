@@ -4,7 +4,7 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
 
 ## Scope and assumptions
 
-- Build a standalone, production-quality TypeScript MCP server in this repository.
+- Build a standalone TypeScript MCP server in this repository for local and remote deployment.
 - Treat the supplied `latest/api` URL correctly as the Apache Iceberg Java API guide and generated
   Javadoc, not as a callable HTTP service.
 - Structure and expose Java API, package, type, member, source, example, and compatibility knowledge

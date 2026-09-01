@@ -2,7 +2,7 @@
 
 The server registers tools dynamically. Java API tools are always present. Source tools are present
 but require a configured source checkout when called. Catalog tools exist only after successful
-`/v1/config` discovery; state-changing tools additionally require operator opt-in.
+`/v1/config` discovery; state-changing tools also require operator opt-in.
 
 The schemas returned by MCP `tools/list` are the authoritative argument reference. All schemas are
 strict: unknown fields, malformed identifiers, and mismatched cursors are rejected.
@@ -96,9 +96,9 @@ conflicts are never retried.
 These are outside the 1.11.0 baseline and are registered only for an exact explicit endpoint
 advertisement:
 
-- `iceberg_catalog_list_functions` — read, paginated;
-- `iceberg_catalog_get_function` — read;
-- `iceberg_catalog_unregister_table` — destructive and mutation-gated.
+- `iceberg_catalog_list_functions`: read and paginated;
+- `iceberg_catalog_get_function`: read;
+- `iceberg_catalog_unregister_table`: destructive and mutation-gated.
 
 The deprecated catalog-local OAuth token and remote-signing REST operations are tracked in the
 operation inventory but are deliberately not model-callable. Outbound OAuth uses the separately

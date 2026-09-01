@@ -48,7 +48,7 @@ keeps tool handlers small and makes every boundary testable.
 1. Parse and validate all operator configuration before starting a transport.
 2. Build shared, bounded providers and caches. Index the optional source checkout without following
    symbolic links outside its canonical root.
-3. Build a fresh `McpServer` from a cheap factory. Providers are closed over and shared; no
+3. Build a fresh `McpServer` from the server factory. Providers are closed over and shared; no
    caller-specific mutable state is stored on the MCP instance.
 4. `serveStdio(factory)` pins one instance after protocol-era negotiation.
 5. `createMcpHandler(factory)` creates a fresh instance for every HTTP request and serves current
@@ -278,7 +278,7 @@ classification reason and source.
 | `ICEBERG_MAX_RESPONSE_CHARS`      | `30000`                         | 4,096-100,000                                     |
 | `ICEBERG_REQUEST_TIMEOUT_MS`      | `15000`                         | 1,000-120,000                                     |
 
-Secrets may additionally use `_FILE` variants so orchestrators can mount them without placing values
+Secrets may also use `_FILE` variants so orchestrators can mount them without placing values
 directly in the process environment. Supplying both direct and file forms is an error.
 
 ## Dependency decisions
