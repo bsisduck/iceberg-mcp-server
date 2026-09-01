@@ -60,6 +60,12 @@ function retryDelay(attempt: number): number {
   return Math.min(1_000, 100 * 2 ** attempt) + Math.floor(Math.random() * 50);
 }
 
+function cancelBody(response: Response): void {
+  if (response.body !== null) {
+    void response.body.cancel().catch(() => undefined);
+  }
+}
+
 export class BoundedFetcher {
   readonly #allowedBaseUrl: URL;
   readonly #fetch: typeof globalThis.fetch;
@@ -114,17 +120,20 @@ export class BoundedFetcher {
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location');
           if (location === null || redirects === 3) {
+            cancelBody(response);
             throw new UpstreamError(
               'Upstream returned an invalid redirect',
               response.status,
               false,
             );
           }
+          cancelBody(response);
           current = new URL(location, current);
           this.#assertAllowed(current);
           continue;
         }
         if (!response.ok) {
+          cancelBody(response);
           throw new UpstreamError(
             `Upstream returned HTTP ${response.status}`,
             response.status,

@@ -406,7 +406,9 @@ export class CatalogClient {
       });
       if ((response.status === 429 || response.status >= 500) && canRetry) {
         const wait = retryAfter(response, attempt);
-        await response.body?.cancel();
+        if (response.body !== null) {
+          void response.body.cancel().catch(() => undefined);
+        }
         return wait;
       }
       return await this.#result(operation, response, cursorIdentity);

@@ -117,6 +117,9 @@ class OAuthAuthProvider implements CatalogAuthProvider {
         signal: combined,
       });
       if (!response.ok) {
+        if (response.body !== null) {
+          void response.body.cancel().catch(() => undefined);
+        }
         throw new UpstreamError(
           `OAuth token endpoint returned HTTP ${response.status}`,
           response.status,
