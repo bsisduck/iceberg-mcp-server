@@ -22,9 +22,9 @@ const typeIndexRecordSchema = z.strictObject({
   u: z.string().max(1_000).optional(),
 });
 const memberIndexRecordSchema = z.strictObject({
-  c: typeNameSchema,
+  c: z.string().max(500),
   l: z.string().min(1).max(2_000),
-  p: packageNameSchema,
+  p: z.string().max(500),
   u: z.string().max(4_000).optional(),
 });
 
@@ -106,21 +106,32 @@ export function parseTypeIndex(text: string, root: URL): readonly TypeRecord[] {
 }
 
 export function parseMemberIndex(text: string, root: URL): readonly MemberRecord[] {
-  return parseAssignment(text, 'memberSearchIndex').map((entry) => {
+  const members: MemberRecord[] = [];
+  for (const entry of parseAssignment(text, 'memberSearchIndex')) {
     const parsed = memberIndexRecordSchema.safeParse(entry);
     if (!parsed.success) {
       throw new UpstreamError('Invalid member index record', 502, false);
     }
+    if (parsed.data.p === '' && parsed.data.c === '') {
+      continue;
+    }
+    if (
+      !packageNameSchema.safeParse(parsed.data.p).success ||
+      !typeNameSchema.safeParse(parsed.data.c).success
+    ) {
+      throw new UpstreamError('Invalid member index record', 502, false);
+    }
     const anchor = parsed.data.u ?? parsed.data.l;
-    return {
+    members.push({
       anchor,
       container: parsed.data.c,
       label: parsed.data.l,
       packageName: parsed.data.p,
       typeFullyQualifiedName: `${parsed.data.p}.${parsed.data.c}`,
       url: safeJavadocUrl(root, `${typePath(parsed.data.p, parsed.data.c)}#${anchor}`),
-    };
-  });
+    });
+  }
+  return members;
 }
 
 export function parseTypeDocumentation(html: string): TypeDocumentation {

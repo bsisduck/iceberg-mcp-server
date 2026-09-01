@@ -40,6 +40,22 @@ describe('Javadoc parser', (): void => {
     });
   });
 
+  it('ignores blank synthetic member records emitted by older official Javadocs', (): void => {
+    const members = parseMemberIndex(
+      'memberSearchIndex = [{"p":"","c":"","l":"add(DataFile)"},{"p":"org.apache.iceberg","c":"Table","l":"schema()"}];updateSearchResults();',
+      root,
+    );
+
+    expect(members).toHaveLength(1);
+    expect(members[0]?.label).toBe('schema()');
+    expect(() =>
+      parseMemberIndex(
+        'memberSearchIndex = [{"p":"bad/package","c":"Table","l":"schema()"}];updateSearchResults();',
+        root,
+      ),
+    ).toThrow(/Invalid member index record/u);
+  });
+
   it('refuses executable suffixes and external URLs', (): void => {
     expect(() =>
       parseTypeIndex('typeSearchIndex = [];updateSearchResults();alert(1)', root),
