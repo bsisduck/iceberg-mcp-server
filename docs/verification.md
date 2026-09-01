@@ -14,7 +14,7 @@ catalog is secure or conforming.
 - Development REST OpenAPI baseline: the adjacent Iceberg checkout's `main` document.
 - MCP protocol baselines: current `2026-07-28` and the SDK-supported legacy protocol path.
 - Runtime baseline: Node.js 20.19 or newer and the Model Context Protocol TypeScript SDK v2.
-- Client parser baselines: Codex CLI 0.152.0, Claude Code 2.1.252, OpenCode 1.3.17, Gemini CLI
+- Local client CLI baselines: Codex CLI 0.152.0, Claude Code 2.1.252, OpenCode 1.3.17, Gemini CLI
   0.56.0, and VS Code 3.17.8; Cursor was checked against its current primary configuration guide.
 
 The upstream Iceberg checkout was used only as evidence and remained unmodified.
