@@ -63,7 +63,11 @@ async function startMockCatalog(): Promise<URL> {
       response.end(
         JSON.stringify({
           defaults: {},
-          endpoints: ['GET /v1/{prefix}/namespaces', 'POST /v1/{prefix}/namespaces'],
+          endpoints: [
+            'GET /v1/{prefix}/namespaces',
+            'POST /v1/{prefix}/namespaces',
+            'DELETE /v1/{prefix}/namespaces/{namespace}',
+          ],
           overrides: {},
         }),
       );
@@ -359,9 +363,30 @@ describe('HTTP transport', (): void => {
       method: 'tools/list',
       params: {},
     });
-    const listResult = listed['result'] as { tools: { name: string }[] };
+    const listResult = listed['result'] as {
+      tools: {
+        annotations?: {
+          destructiveHint?: boolean;
+          openWorldHint?: boolean;
+          readOnlyHint?: boolean;
+        };
+        inputSchema?: { additionalProperties?: boolean; type?: string };
+        name: string;
+        outputSchema?: unknown;
+      }[];
+    };
     expect(listResult.tools.map((tool) => tool.name)).toContain('iceberg_api_get_type');
     expect(listResult.tools).toHaveLength(9);
+    const getType = listResult.tools.find((tool) => tool.name === 'iceberg_api_get_type');
+    expect(getType).toMatchObject({
+      annotations: {
+        destructiveHint: false,
+        openWorldHint: true,
+        readOnlyHint: true,
+      },
+      inputSchema: { additionalProperties: false, type: 'object' },
+    });
+    expect(getType?.outputSchema).toBeDefined();
 
     const called = await mcpPost(handle.address, {
       id: 3,
@@ -440,13 +465,21 @@ describe('HTTP transport', (): void => {
       method: 'tools/list',
       params: {},
     });
-    const readOnlyTools = (readOnlyList['result'] as { tools: { name: string }[] }).tools.map(
-      (tool) => tool.name,
-    );
+    const readOnlyDefinitions = (
+      readOnlyList['result'] as {
+        tools: { annotations?: Record<string, boolean>; name: string }[];
+      }
+    ).tools;
+    const readOnlyTools = readOnlyDefinitions.map((tool) => tool.name);
     expect(readOnlyTools).toContain('iceberg_catalog_get_config');
     expect(readOnlyTools).toContain('iceberg_catalog_list_namespaces');
     expect(readOnlyTools).not.toContain('iceberg_catalog_create_namespace');
     expect(readOnlyTools).not.toContain('iceberg_catalog_list_tables');
+    expect(
+      readOnlyDefinitions.find((tool) => tool.name === 'iceberg_catalog_list_namespaces'),
+    ).toMatchObject({
+      annotations: { destructiveHint: false, openWorldHint: true, readOnlyHint: true },
+    });
 
     const mutableHandle = await start(withCatalog(testConfig(), catalogUri, true));
     const mutableList = await mcpPost(mutableHandle.address, {
@@ -455,10 +488,19 @@ describe('HTTP transport', (): void => {
       method: 'tools/list',
       params: {},
     });
-    const mutableTools = (mutableList['result'] as { tools: { name: string }[] }).tools.map(
-      (tool) => tool.name,
-    );
+    const mutableDefinitions = (
+      mutableList['result'] as {
+        tools: { annotations?: Record<string, boolean>; name: string }[];
+      }
+    ).tools;
+    const mutableTools = mutableDefinitions.map((tool) => tool.name);
     expect(mutableTools).toContain('iceberg_catalog_create_namespace');
+    expect(
+      mutableDefinitions.find((tool) => tool.name === 'iceberg_catalog_create_namespace'),
+    ).toMatchObject({ annotations: { destructiveHint: false, readOnlyHint: false } });
+    expect(
+      mutableDefinitions.find((tool) => tool.name === 'iceberg_catalog_drop_namespace'),
+    ).toMatchObject({ annotations: { destructiveHint: true, readOnlyHint: false } });
 
     const configCall = await mcpPost(readOnlyHandle.address, {
       id: 6,

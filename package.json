@@ -16,7 +16,11 @@
     "./package.json": "./package.json"
   },
   "files": [
+    ".env.example",
     "dist",
+    "docs",
+    "evaluations/README.md",
+    "evaluations/evaluations.xml",
     "LICENSE",
     "README.md"
   ],

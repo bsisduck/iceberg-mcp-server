@@ -26,36 +26,37 @@ audience and execution boundary even when it connects only to operator-trusted s
 
 ## Threats and controls
 
-| Threat                                      | Controls                                                                                                                       | Verification                                                           |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Arbitrary file read/path traversal          | No path parameters; canonical indexed type IDs; no out-of-root symlink traversal                                               | Unit tests with `..`, absolute paths, encoded separators, and symlinks |
-| SSRF through model input                    | No URL parameters; origins are startup-only; redirect target validation; Javadoc path allowlist                                | Tests for private/foreign redirect rejection and encoded path tricks   |
-| Catalog URI SSRF                            | URI is operator configuration, never a tool argument; HTTPS outside loopback                                                   | Config validation tests                                                |
-| Secret disclosure in results/errors/logs    | Central recursive redaction; never return auth/vended credentials; correlation IDs instead of headers/bodies                   | Fixture tests with secrets at every nesting level and error path       |
-| Credential reuse across principals/catalogs | One catalog identity per process; token cache keyed by issuer/audience/credential identity; no model-selected token            | Auth cache isolation tests                                             |
-| OAuth endpoint confusion                    | Explicit token URI; HTTPS; no automatic deprecated catalog token fallback; issuer/audience checks when metadata exists         | Mock issuer/audience mismatch tests                                    |
-| DNS rebinding/host spoofing                 | SDK host and origin validation; loopback default; exact allowed origins                                                        | HTTP integration tests for Host and Origin                             |
-| Unauthenticated remote MCP                  | Non-loopback HTTP refuses startup without auth; constant-time bearer comparison; proxy OAuth documented                        | Startup and HTTP 401 tests                                             |
-| Accidental/destructive mutation             | Mutation tools absent by default; explicit startup opt-in; accurate annotations; catalog authorization remains authoritative   | Tool-list snapshots in both modes; mock mutation assertions            |
-| Duplicate mutation during retry             | No mutation retry unless advertised idempotency exists; UUIDv7 per logical operation; 409 never retried                        | Deterministic retry/idempotency tests                                  |
-| DoS through input or upstream content       | Strict schema lengths, request-body bound, fetch timeout/byte limit, concurrency cap, response budget, record-aware pagination | Boundary, slow-server, oversized-body, and cancellation tests          |
-| ReDoS/source search abuse                   | Literal search only in public tool; no model-provided regular expressions                                                      | Schema and adversarial query tests                                     |
-| Javadoc script execution                    | Exact assignment wrapper plus `JSON.parse`; Cheerio parses HTML without executing scripts                                      | Malicious index/HTML fixtures                                          |
-| Cache poisoning/version confusion           | Cache key includes normalized origin and explicit version; provenance in every result; immutable release cache                 | Cross-version isolation tests                                          |
-| Prompt/tool injection in docs               | External prose is returned as quoted documentation data; never interpreted as server instructions                              | Fixtures containing instruction-like text                              |
-| Error detail leakage                        | Expected errors mapped to allowlisted fields; internal stacks remain server-side                                               | Snapshot tests for all error classes                                   |
+| Threat                                      | Controls                                                                                                                       | Verification                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| Arbitrary file read/path traversal          | No path parameters; canonical indexed type IDs; no out-of-root symlink traversal                                               | Source-provider boundary and symlink tests                     |
+| SSRF through model input                    | No URL parameters; origins are startup-only; redirect target validation; exact Javadoc origin/path-prefix boundary             | Foreign URL and redirect rejection tests                       |
+| Catalog URI SSRF                            | URI is operator configuration, never a tool argument; HTTPS outside loopback                                                   | Config validation tests                                        |
+| Secret disclosure in results/errors/logs    | Central recursive redaction; never return auth/vended credentials; correlation IDs instead of headers/bodies                   | Recursive redaction, credential-scope, and error mapping tests |
+| Credential reuse across principals/catalogs | One catalog identity and one auth provider per process; no model-selected URI, credential, or token                            | Configuration exclusivity and auth lifecycle tests             |
+| OAuth endpoint confusion                    | Explicit external token URI; HTTPS outside loopback; redirects rejected; bounded Bearer-token response; no deprecated fallback | OAuth provider response, timeout, cache, and rejection tests   |
+| Host/Origin spoofing                        | SDK host and origin validation; loopback default; exact allowed origins                                                        | HTTP integration tests for Host and Origin                     |
+| Unauthenticated remote MCP                  | Non-loopback HTTP refuses startup without auth; constant-time bearer comparison; proxy OAuth documented                        | Startup and HTTP 401 tests                                     |
+| Accidental/destructive mutation             | Mutation tools absent by default; explicit startup opt-in; accurate annotations; catalog authorization remains authoritative   | Protocol tool-list assertions in read-only and mutable modes   |
+| Duplicate mutation during retry             | No mutation retry unless advertised idempotency exists; UUIDv7 per logical operation; 409 never retried                        | Deterministic retry/idempotency tests                          |
+| DoS through input or upstream content       | Strict schema lengths, request-body bound, fetch timeout/byte limit, concurrency cap, response budget, bounded pagination      | Boundary, oversized-body, timeout, and cancellation tests      |
+| ReDoS/source search abuse                   | Literal search only in public tool; no model-provided regular expressions                                                      | Schema and adversarial query tests                             |
+| Javadoc script execution                    | Exact assignment wrapper plus `JSON.parse`; Cheerio parses HTML without executing scripts                                      | Executable-tail and malformed-index parser tests               |
+| Cache poisoning/version confusion           | Fixed provider origin, explicit version cache partition, provenance in results, bounded release/nightly TTLs                   | Cross-version and cache lifecycle tests                        |
+| Prompt/tool injection in docs               | Parsed external prose is returned as documentation data and is never executed as server instructions                           | Non-executing JSON/HTML parser design                          |
+| Error detail leakage                        | Expected errors mapped to allowlisted fields; internal stacks remain server-side                                               | Expected, upstream, and unexpected tool error tests            |
 
 ## REST credential policy
 
 - `ICEBERG_CATALOG_TOKEN`, `ICEBERG_OAUTH2_CREDENTIAL`, and inbound MCP auth tokens are secrets.
 - `_FILE` variants are preferred for container/orchestrator deployment. Secret files must be regular
   files and are read once with a maximum byte count.
-- The deprecated Iceberg `/v1/oauth/tokens` operation is internal-only and disabled by default. An
-  explicit external OAuth endpoint is required for client credentials.
+- The deprecated Iceberg `/v1/oauth/tokens` operation is not exposed or invoked. An explicit
+  external OAuth endpoint is required for client credentials.
 - Authorization, cookies, proxy authorization, token responses, and properties whose normalized
   names contain token/secret/credential/password/private-key are redacted recursively.
-- `loadCredentials` and remote-signing responses need special output schemas that return
-  availability/scope metadata but not credential configuration or signed authorization headers.
+- `loadCredentials` has a special sanitizer that returns prefixes and key names, not credential
+  configuration values. The remote-signing endpoint is not callable, so signed headers are never
+  emitted.
 
 ## Mutation policy
 
@@ -77,9 +78,8 @@ No generic REST request tool is provided.
 - Default: `127.0.0.1:3000`, local host/origin validation, stdio preferred.
 - Non-loopback: TLS is terminated by a trusted reverse proxy or native TLS wrapper; exact allowed
   origins and inbound authentication are mandatory.
-- The server trusts forwarded headers only when an explicit proxy trust policy is configured.
-  Otherwise it ignores them.
-- Health endpoints reveal only readiness/version, never catalog configuration.
+- Forwarded-header claims are ignored; validation uses the Host and Origin received by the server.
+- No health, configuration, debug, or generic proxy endpoint is mounted; only `/mcp` is served.
 - Logs go to stderr and are suitable for structured collection. Request/response bodies are not
   logged.
 
@@ -96,13 +96,13 @@ No generic REST request tool is provided.
 
 ## Security verification gate
 
-Completion requires:
+The completion audit covers:
 
 - dependency audit and license inventory;
-- secret-pattern scan of tracked files and packaged output;
+- secret-pattern scan of tracked source/config files and packaged output;
 - config/startup negative tests;
 - filesystem and SSRF adversarial tests;
 - Host/Origin/auth HTTP integration tests;
 - redaction tests for nested catalog errors and credential responses;
 - mutation registration/annotation/idempotency tests;
-- cancellation, timeout, body-size, upstream-size, and concurrency-limit tests.
+- cancellation, timeout, body-size, upstream-size, and bounded-cache/concurrency behavior.

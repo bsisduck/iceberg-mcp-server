@@ -10,6 +10,7 @@ import {
   encodeTokenCursor,
   paginate,
 } from '../../src/shared/pagination.js';
+import { redactSecrets } from '../../src/shared/redaction.js';
 import { executeTool } from '../../src/shared/responses.js';
 
 describe('AsyncTtlCache', (): void => {
@@ -69,6 +70,35 @@ describe('bounded pagination', (): void => {
       /does not match/u,
     );
     expect(() => decodeTokenCursor('*', query)).toThrow(/malformed/u);
+  });
+});
+
+describe('recursive redaction', (): void => {
+  it('removes nested secret values without hiding safe metadata', (): void => {
+    const redacted = redactSecrets({
+      authorization: 'Bearer private',
+      nested: [
+        {
+          'client-secret': 'private',
+          prefix: 's3://warehouse',
+          properties: { 's3.access-key': 'private', region: 'eu-central-1' },
+        },
+      ],
+      tokenized_name: 'safe',
+    });
+
+    expect(redacted).toEqual({
+      authorization: '[REDACTED]',
+      nested: [
+        {
+          'client-secret': '[REDACTED]',
+          prefix: 's3://warehouse',
+          properties: { 's3.access-key': '[REDACTED]', region: 'eu-central-1' },
+        },
+      ],
+      tokenized_name: 'safe',
+    });
+    expect(JSON.stringify(redacted)).not.toContain('private');
   });
 });
 

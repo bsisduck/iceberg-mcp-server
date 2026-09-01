@@ -53,8 +53,8 @@ keeps tool handlers small and makes every boundary testable.
 4. `serveStdio(factory)` pins one instance after protocol-era negotiation.
 5. `createMcpHandler(factory)` creates a fresh instance for every HTTP request and serves current
    and legacy stateless protocol eras.
-6. On shutdown, stop accepting requests, abort outstanding upstream calls, close the MCP
-   handler/stdio handle, and clear secrets and caches where practical.
+6. On shutdown, close the MCP handler/stdio handle, close the catalog auth provider, and clear
+   Javadoc/source caches.
 
 HTTP uses `node:http`, the SDK's `toNodeHandler`, host validation, and origin validation. It binds
 to `127.0.0.1` by default. A non-loopback bind requires an explicit allowed-origin list and inbound
@@ -79,12 +79,12 @@ src/
   catalog/
     auth.ts                  bearer/OAuth token lifecycle
     client.ts                bounded REST request execution
-    discovery.ts             /v1/config merge and endpoint gates
-    schemas/                 REST input and response schemas
+    operations.ts            operation inventory and legacy endpoint sets
+    response-schemas.ts      operation-specific response validation
     types.ts                 catalog domain and error types
   capabilities/
     api-tools.ts
-    catalog-tools/           tools grouped by domain
+    catalog-tools.ts         typed REST Catalog tool mappings
     resources.ts
     prompts.ts
   shared/
@@ -92,12 +92,12 @@ src/
     pagination.ts
     responses.ts
     redaction.ts
-    fetch.ts
+    fetch.ts                 bounded same-root HTTP retrieval
 test/
-  fixtures/
   unit/
-  contract/
   integration/
+evaluations/                ten protocol-level read-only questions
+scripts/                    package cleanup and OpenAPI coverage checks
 ```
 
 ## Provider contracts
@@ -183,8 +183,8 @@ Canonical resources complement tools rather than duplicating search:
 - `iceberg://source/type/{fully-qualified-name}`
 - `iceberg://catalog/config`
 
-Resource results use JSON with descriptive text where useful and advertise cache hints appropriate
-to immutable release Javadocs versus nightly/local source.
+Resource results use JSON. API resources advertise a five-minute public cache hint; source and
+catalog resources are private with a zero TTL.
 
 Prompts are user-selected workflow starters:
 
@@ -235,8 +235,8 @@ validated; a mismatch returns an actionable input error instead of silently chan
 - `LimitError`: source, response, request, or concurrency bounds were exceeded.
 - `InternalError`: unexpected failure logged with correlation ID and redacted context.
 
-Expected failures return `isError: true` tool results. Logs go to stderr for stdio and structured
-stderr/OpenTelemetry-compatible sinks for HTTP. stdout is protocol only.
+Expected failures return `isError: true` tool results. Unexpected failures receive a correlation ID
+in the tool result and are emitted as one-line JSON diagnostics on stderr. stdout is protocol only.
 
 ## Version and stability semantics
 
