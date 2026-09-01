@@ -305,7 +305,13 @@ describe('CatalogClient', (): void => {
 
   it('gates unadvertised operations before network I/O', async (): Promise<void> => {
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
-      Promise.resolve(jsonResponse({ defaults: {}, endpoints: [], overrides: {} })),
+      Promise.resolve(
+        jsonResponse({
+          defaults: {},
+          endpoints: ['GET /v1/{prefix}/namespaces'],
+          overrides: {},
+        }),
+      ),
     );
     const client = await CatalogClient.create({ config: config(), fetch, limits });
 
@@ -313,6 +319,34 @@ describe('CatalogClient', (): void => {
       client.call({ operationId: 'listTables', path: { namespace: ['analytics'] } }),
     ).rejects.toThrow(/did not advertise/u);
     expect(fetch).toHaveBeenCalledTimes(1);
+    client.close();
+  });
+
+  it('uses Iceberg legacy defaults for an empty endpoint advertisement', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(jsonResponse({ defaults: {}, endpoints: [], overrides: {} })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch, limits });
+
+    expect(client.supports(operationById('listTables'))).toBe(true);
+    expect(client.supports(operationById('listViews'))).toBe(false);
+    client.close();
+  });
+
+  it('adds legacy view endpoints when discovery enables them', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        jsonResponse({
+          defaults: { 'view-endpoints-supported': 'true' },
+          overrides: {},
+        }),
+      ),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch, limits });
+
+    expect(client.supports(operationById('listViews'))).toBe(true);
+    expect(client.supports(operationById('renameView'))).toBe(true);
+    expect(client.supports(operationById('registerView'))).toBe(false);
     client.close();
   });
 

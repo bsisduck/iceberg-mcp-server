@@ -9,7 +9,7 @@ import { decodeTokenCursor, encodeTokenCursor } from '../shared/pagination.js';
 import { redactSecrets } from '../shared/redaction.js';
 import type { CatalogAuthProvider } from './auth.js';
 import { createCatalogAuthProvider } from './auth.js';
-import { DEFAULT_CATALOG_ENDPOINTS, operationById } from './operations.js';
+import { DEFAULT_CATALOG_ENDPOINTS, DEFAULT_VIEW_ENDPOINTS, operationById } from './operations.js';
 import type { CatalogOperation } from './operations.js';
 import type { CatalogCall, CatalogDiscovery, CatalogResult } from './types.js';
 import { validateCatalogResponse } from './response-schemas.js';
@@ -264,9 +264,17 @@ export class CatalogClient {
         ...local,
         ...parsed.data.overrides,
       };
+      const advertisedEndpoints = parsed.data.endpoints;
+      const endpoints =
+        advertisedEndpoints === undefined || advertisedEndpoints.length === 0
+          ? new Set([
+              ...DEFAULT_CATALOG_ENDPOINTS,
+              ...(merged['view-endpoints-supported'] === 'true' ? DEFAULT_VIEW_ENDPOINTS : []),
+            ])
+          : new Set(advertisedEndpoints);
       return {
         defaults: parsed.data.defaults,
-        endpoints: new Set(parsed.data.endpoints ?? DEFAULT_CATALOG_ENDPOINTS),
+        endpoints,
         idempotencyKeyLifetime: parsed.data['idempotency-key-lifetime'],
         merged,
         namespaceSeparator: decodeNamespaceSeparator(merged['namespace-separator']),

@@ -322,6 +322,17 @@ export const DEFAULT_CATALOG_ENDPOINTS = new Set([
   'POST /v1/{prefix}/transactions/commit',
 ]);
 
+// Keep this list aligned with RESTSessionCatalog.VIEW_ENDPOINTS. Iceberg uses it only when a
+// server omits endpoint discovery and enables the legacy view-endpoints-supported property.
+export const DEFAULT_VIEW_ENDPOINTS = new Set([
+  'GET /v1/{prefix}/namespaces/{namespace}/views',
+  'POST /v1/{prefix}/namespaces/{namespace}/views',
+  'GET /v1/{prefix}/namespaces/{namespace}/views/{view}',
+  'POST /v1/{prefix}/namespaces/{namespace}/views/{view}',
+  'DELETE /v1/{prefix}/namespaces/{namespace}/views/{view}',
+  'POST /v1/{prefix}/views/rename',
+]);
+
 export const CURRENT_CATALOG_EXTENSION_OPERATIONS: readonly CatalogOperation[] = [
   {
     id: 'listFunctions',
