@@ -55,6 +55,122 @@ describe('catalog operation coverage', (): void => {
       /^018bcfe5-6800-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
   });
+
+  it('builds every callable operation from strict, model-facing inputs', (): void => {
+    const namespace = ['company', 'analytics'];
+    const tablePath = { namespace, table: 'events' };
+    const viewPath = { namespace, view: 'daily_events' };
+    const samples: Record<string, Record<string, unknown>> = {
+      cancelPlanning: { ...tablePath, plan_id: 'plan-1' },
+      commitTransaction: { table_changes: [{ identifier: { name: 'events', namespace } }] },
+      createNamespace: { namespace, properties: { owner: 'data' } },
+      createTable: {
+        location: 's3://warehouse/events',
+        name: 'events',
+        namespace,
+        partition_spec: { fields: [] },
+        properties: { owner: 'data' },
+        schema: { fields: [], 'schema-id': 0, type: 'struct' },
+        stage_create: true,
+        write_order: { fields: [], 'order-id': 0 },
+      },
+      createView: {
+        location: 's3://warehouse/views/daily_events',
+        name: 'daily_events',
+        namespace,
+        properties: { dialect: 'spark' },
+        schema: { fields: [], 'schema-id': 0, type: 'struct' },
+        view_version: { 'version-id': 1 },
+      },
+      dropNamespace: { namespace },
+      dropTable: { ...tablePath, purge_requested: true },
+      dropView: viewPath,
+      fetchPlanningResult: { ...tablePath, plan_id: 'plan-1' },
+      fetchScanTasks: {
+        ...tablePath,
+        cursor: 'opaque',
+        page_size: 25,
+        plan_task: 'task-token',
+      },
+      getConfig: {},
+      listFunctions: { cursor: 'opaque', namespace, page_size: 25 },
+      listNamespaces: { cursor: 'opaque', page_size: 25, parent: ['company'] },
+      listTables: { cursor: 'opaque', namespace, page_size: 25 },
+      listViews: { cursor: 'opaque', namespace, page_size: 25 },
+      loadCredentials: tablePath,
+      loadFunction: { function: 'bucket', namespace },
+      loadNamespaceMetadata: { namespace },
+      loadTable: { ...tablePath, snapshots: 'refs' },
+      loadView: viewPath,
+      namespaceExists: { namespace },
+      planTableScan: {
+        ...tablePath,
+        case_sensitive: true,
+        end_snapshot_id: 3,
+        filter: { type: 'true' },
+        min_rows_requested: 1,
+        select: ['id'],
+        snapshot_id: 2,
+        start_snapshot_id: 1,
+        use_snapshot_schema: true,
+      },
+      registerTable: {
+        metadata_location: 's3://warehouse/events/metadata/v1.json',
+        name: 'events',
+        namespace,
+        overwrite: false,
+      },
+      registerView: {
+        metadata_location: 's3://warehouse/views/daily_events/metadata/v1.json',
+        name: 'daily_events',
+        namespace,
+      },
+      renameTable: {
+        destination_name: 'events_v2',
+        destination_namespace: namespace,
+        source_name: 'events',
+        source_namespace: namespace,
+      },
+      renameView: {
+        destination_name: 'daily_events_v2',
+        destination_namespace: namespace,
+        source_name: 'daily_events',
+        source_namespace: namespace,
+      },
+      replaceView: {
+        ...viewPath,
+        requirements: [{ type: 'assert-view-uuid', uuid: 'view-uuid' }],
+        updates: [{ type: 'set-properties', updates: { owner: 'data' } }],
+      },
+      reportMetrics: { ...tablePath, report: { 'report-type': 'scan-report' } },
+      tableExists: tablePath,
+      unregisterTable: tablePath,
+      updateProperties: { namespace, removals: ['old'], updates: { owner: 'data' } },
+      updateTable: {
+        ...tablePath,
+        requirements: [{ type: 'assert-table-uuid', uuid: 'table-uuid' }],
+        updates: [{ type: 'set-properties', updates: { owner: 'data' } }],
+      },
+      viewExists: viewPath,
+    };
+
+    const calls = catalogToolDefinitions().map((definition) => {
+      const sample = samples[definition.operationId];
+      if (sample === undefined) {
+        throw new Error(`Missing sample for ${definition.operationId}`);
+      }
+      return definition.build(definition.inputSchema.parse(sample));
+    });
+
+    expect(calls).toHaveLength(33);
+    expect(calls.map((call) => call.operationId)).toEqual(
+      catalogToolDefinitions().map((definition) => definition.operationId),
+    );
+    expect(calls.find((call) => call.operationId === 'renameTable')?.body).toEqual({
+      destination: { name: 'events_v2', namespace },
+      source: { name: 'events', namespace },
+    });
+  });
 });
 
 describe('CatalogClient', (): void => {
