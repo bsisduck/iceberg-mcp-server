@@ -88,3 +88,5 @@ their exact endpoints.
 | Safe documentation-only startup                  | integration test without source/catalog configuration                         |
 | Capability gating                                | mock `/v1/config` endpoint subsets                                            |
 | No secret output                                 | recursive redaction and credential-scope assertions                           |
+| Server-wide workflow instructions                | initialization assertion and 512-character context bound                      |
+| Client onboarding                                | seven generated formats, JSON validation, CLI parser checks, isolated connect |

@@ -138,3 +138,15 @@ Use paginated tools when a bounded resource is too large.
 
 Prompts are user-selected templates. They do not grant authority, add credentials, or bypass the
 mutation registration boundary.
+
+## Server instructions and client setup
+
+MCP initialization returns a self-contained instruction string under 512 characters. It directs
+agents to begin read-only, resolve exact Java identities, inspect catalog discovery first, preserve
+opaque cursors, paginate bounded results, protect credentials, and confirm mutations. This is
+cross-tool guidance; the individual schemas and annotations remain authoritative.
+
+`iceberg-mcp-server --print-client-config <client>` renders a local stdio command or JSON document
+without modifying client settings. Supported targets are `codex`, `claude-code`, `opencode`,
+`gemini-cli`, `vscode`, `cursor`, and `generic-json`. See [client-setup.md](client-setup.md) before
+applying a generated entry.

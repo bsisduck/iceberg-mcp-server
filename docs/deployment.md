@@ -1,5 +1,8 @@
 # Deployment and operations
 
+For local client installation before deployment, use the non-mutating generator and acceptance
+checklist in [client-setup.md](client-setup.md).
+
 ## Stdio deployment
 
 Stdio is the preferred local transport. Build the package and configure the MCP client to launch

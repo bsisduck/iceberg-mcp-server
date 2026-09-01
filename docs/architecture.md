@@ -65,6 +65,7 @@ bearer authentication configuration.
 ```text
 src/
   cli.ts                     executable and argument parsing
+  client-config.ts           non-mutating MCP client setup rendering
   config.ts                  strict environment/runtime configuration
   server.ts                  MCP factory and capability registration
   transport/
@@ -193,6 +194,12 @@ Prompts are user-selected workflow starters:
   before considering a mutation.
 
 Prompts never contain credentials and never instruct the client to bypass mutation controls.
+
+The initialization result also carries concise server-wide instructions. The message tells clients
+to start read-only, resolve exact Java identities, inspect catalog discovery, preserve cursors,
+bound output, protect credentials, and confirm gated mutations. Keeping the whole contract below 512
+characters makes it available to clients that prioritize only the leading instructions during tool
+selection.
 
 ## Common response contract
 

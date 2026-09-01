@@ -67,6 +67,12 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
   - Run formatting, lint, type checking, unit/integration tests, build, package smoke tests, MCP
     protocol inspection, dependency audit, and secret scan.
   - Re-read the full diff and verify a clean Git worktree.
+- [x] Client onboarding follow-up
+  - Generate non-mutating native setup for Codex, Claude Code, OpenCode, Gemini CLI, VS Code,
+    Cursor, and generic `mcpServers` clients.
+  - Validate current primary configuration guidance, local CLI parser behavior, isolated client
+    acceptance where safe, and rollback instructions.
+  - Trace supported user stories, deliberate non-goals, and context-optimization behavior.
 
 ## Research gap matrix
 

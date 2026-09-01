@@ -2,9 +2,9 @@
 
 Audit date: 2026-09-01
 
-This report records the final implementation and verification boundary for version `0.1.0`. It is
-evidence for the repository state, not a claim that every deployment or third-party catalog is
-secure or conforming.
+This report records the implementation, onboarding follow-up, and verification boundary for version
+`0.1.0`. It is evidence for the repository state, not a claim that every deployment or third-party
+catalog is secure or conforming.
 
 ## Audited baselines
 
@@ -14,6 +14,8 @@ secure or conforming.
 - Development REST OpenAPI baseline: the adjacent Iceberg checkout's `main` document.
 - MCP protocol baselines: current `2026-07-28` and the SDK-supported legacy protocol path.
 - Runtime baseline: Node.js 20.19 or newer and the Model Context Protocol TypeScript SDK v2.
+- Client parser baselines: Codex CLI 0.152.0, Claude Code 2.1.252, OpenCode 1.3.17, Gemini CLI
+  0.56.0, and VS Code 3.17.8; Cursor was checked against its current primary configuration guide.
 
 The upstream Iceberg checkout was used only as evidence and remained unmodified.
 
@@ -31,6 +33,9 @@ The upstream Iceberg checkout was used only as evidence and remained unmodified.
 | Mutation boundary                       | Mutation tools absent unless both configured and advertised                | Registration and protocol tests                       |
 | MCP transports                          | stdio and stateless Streamable HTTP                                        | Transport and installed-CLI smoke tests               |
 | MCP compatibility                       | Current and legacy protocol negotiation                                    | Protocol contract tests                               |
+| Server instructions                     | Complete read-first workflow contract within 512 characters                | Initialization protocol assertion                     |
+| Client onboarding                       | Native output for 7 clients/configuration formats                          | Renderer tests and client-template verifier           |
+| User stories                            | Every shipped tool/resource/prompt family traced to outcomes or non-goals  | Versioned user-story acceptance matrix                |
 
 The Java plane uses the complete published indexes instead of a curated class list. Source lookup is
 separate from Javadoc lookup: exact source targets must be present in the index, while
@@ -47,9 +52,17 @@ The final audit ran these repository gates successfully:
 
 - formatting, ESLint, strict TypeScript type checking, tests, and production build through
   `npm run check`;
-- 116 passing tests across 12 files;
-- 91.81% statement, 85.99% branch, 95.69% function, and 92.04% line coverage;
+- 122 passing tests across 13 files;
+- 91.92% statement, 86.16% branch, 95.88% function, and 92.14% line coverage;
 - all 10 deterministic, multi-step evaluation cases over a real MCP HTTP session;
+- all 7 generated client formats verified, including JSON parsing, path preservation, shell-safe
+  quoting, and absence of secret-bearing fields;
+- the generated Claude Code command connected successfully under an isolated temporary user
+  configuration;
+- Gemini CLI accepted the equivalent isolated project configuration and correctly suppressed it in
+  an untrusted folder; VS Code accepted the definition under an isolated user-data directory;
+- Codex and OpenCode syntax/schema checks were non-mutating; no real client configuration was
+  changed by any audit;
 - exact operation-ID reconciliation against both the 32-operation release OpenAPI document and the
   35-operation current document;
 - production tarball creation, installation into a temporary project, executable symlink launch,
@@ -83,6 +96,20 @@ The completion audit added or verified controls for:
 - escaped implementation-search terms and exact indexed source targets;
 - OAuth response media-type validation and rejection of redirected token exchanges;
 - `nosniff` and no-cache response headers on the HTTP transport.
+
+## Onboarding and context findings closed during follow-up
+
+- The README previously contained only one generic `mcpServers` example. The CLI now renders seven
+  current client-native formats without editing user configuration.
+- The original initialization instructions were accurate but too terse for reliable tool selection.
+  They now carry the complete read-first workflow and safety boundary within 512 characters.
+- Capabilities were mapped by API surface but not by user outcome. The user-story catalog now traces
+  every tool/resource/prompt family, precondition, safety behavior, and deliberate non-goal.
+- Client installation previously required users to translate paths and schemas manually. The client
+  guide, renderer, acceptance checklist, and copy/paste agent prompts make that translation
+  reproducible and reviewable.
+- Context growth remains bounded because catalog tools are discovery-gated, mutation tools are
+  absent by default, instructions are concise, and large result surfaces require filters/cursors.
 
 ## Residual and deployment-specific risk
 

@@ -27,9 +27,12 @@ configures a catalog and explicitly enables mutations.
   structured errors, and secret redaction.
 - MCP tools, resource templates, and guided prompts over stdio or stateless Streamable HTTP.
 - Compatibility tests for current MCP (`2026-07-28`) and legacy protocol clients.
+- Non-mutating setup generation for Codex, Claude Code, OpenCode, Gemini CLI, VS Code, Cursor, and
+  other JSON-configured MCP clients.
 
 See [tool and workflow reference](docs/tools.md), [coverage matrix](docs/coverage.md), and
-[architecture](docs/architecture.md) for the exact surface.
+[architecture](docs/architecture.md) for the exact surface. The complete supported workflow catalog
+is in [user stories and use cases](docs/user-stories.md).
 
 ## Requirements
 
@@ -61,9 +64,25 @@ ICEBERG_SOURCE_DIR=/absolute/path/to/iceberg node dist/cli.js
 Without a valid source checkout, Javadoc tools still work and source-only tools return a clear
 configuration error.
 
+## Install into an MCP client
+
+Build first, then generate a client-native command or JSON block without changing client settings:
+
+```sh
+node dist/cli.js --print-client-config codex --source-dir /absolute/path/to/iceberg
+node dist/cli.js --print-client-config claude-code --source-dir /absolute/path/to/iceberg
+node dist/cli.js --print-client-config opencode --source-dir /absolute/path/to/iceberg
+```
+
+Supported targets are `codex`, `claude-code`, `opencode`, `gemini-cli`, `vscode`, `cursor`, and
+`generic-json`. Follow the [client setup guide](docs/client-setup.md) to apply and verify the
+result, or give your coding agent one of the reviewed
+[copy/paste installation prompts](docs/installation-prompts.md).
+
 ## MCP client configuration
 
-Build first, replace both absolute paths, and add this server to the client's MCP configuration:
+For a client that accepts the common `mcpServers` shape, build first, replace both absolute paths,
+and merge this entry without overwriting other servers:
 
 ```json
 {
@@ -160,6 +179,7 @@ restart the process after rotating a mounted secret.
 npm run check
 npm run test:coverage
 npm run verify:evaluations
+npm run verify:clients
 npm run verify:openapi
 npm pack --dry-run
 ```
