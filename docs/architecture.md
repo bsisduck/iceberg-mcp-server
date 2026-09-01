@@ -128,12 +128,11 @@ directory symlinks. It records:
 - module and relative path;
 - declared package;
 - top-level and nested type names discoverable from the source;
-- line offsets for declarations and bounded literal-search matches;
 - Git revision and branch when they can be read without mutating the checkout.
 
 Callers select a fully qualified indexed type. No capability accepts a raw path. Source retrieval
 returns a bounded line window with line numbers and provenance. Lexical implementation search is
-labeled as such; Javadoc inheritance is preferred when available.
+labeled as such. Every indexed path is canonicalized again immediately before it is opened.
 
 ### REST Catalog client
 
@@ -154,8 +153,8 @@ Requests use:
 - spec-aware UUIDv7 idempotency only when advertised for mutations.
 
 Every operation checks discovery before network I/O. Expected REST failures become structured tool
-errors containing sanitized status, Iceberg error type/code, retryability, and guidance. A 409
-commit conflict is never treated as transient.
+errors containing sanitized status, Iceberg error type/code, message, and retryability. A 409 commit
+conflict is never treated as transient.
 
 ## Java API capabilities
 
@@ -222,8 +221,9 @@ available. A final serialized-size check protects every tool and resource; an ov
 returns a `LimitError` telling the caller to request a smaller page or source window.
 
 Opaque cursors are base64url-encoded, versioned JSON containing an offset or REST page token and a
-digest of immutable query parameters. They carry no authority. Decoding is strictly bounded and
-validated; a mismatch returns an actionable input error instead of silently changing the query.
+digest of immutable query parameters. The wrapper adds no authority, but an upstream REST page token
+must still be treated as private catalog state. Decoding is strictly bounded and validated; a
+mismatch returns an actionable input error instead of silently changing the query.
 
 ## Error taxonomy
 
@@ -245,7 +245,6 @@ in the tool result and are emitted as one-line JSON diagnostics on stderr. stdou
 - `source`: configured checkout identity derived from Git when available.
 - `stable-module`: source maps to one of the six RevAPI-checked modules.
 - `public-unclassified`: public Javadoc but no stable-module evidence.
-- `unknown`: remote result cannot be mapped to a source module.
 
 Stability is evidence, not a guarantee synthesized by the MCP server. Results state the
 classification reason and source.

@@ -59,10 +59,10 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
   - Add unit, contract, transport, error, security, and integration tests against a deterministic
     mock REST Catalog.
   - Create and independently solve ten stable, multi-step, read-only evaluations.
-- [~] Documentation and packaging
+- [x] Documentation and packaging
   - Document setup, authentication, tools, examples, deployment, security, compatibility,
     troubleshooting, and client configuration.
-- [ ] Completion audit
+- [x] Completion audit
   - Trace each promised Java API surface and every OpenAPI operation to implementation and tests.
   - Run formatting, lint, type checking, unit/integration tests, build, package smoke tests, MCP
     protocol inspection, dependency audit, and secret scan.

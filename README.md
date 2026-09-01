@@ -171,7 +171,9 @@ MCP HTTP session.
 
 Research claims and primary sources are recorded in the
 [claim-to-source ledger](docs/research/claim-source-ledger.md). Security-sensitive behavior and
-remaining deployment risks are in the [security model](docs/security.md).
+remaining deployment risks are in the [security model](docs/security.md). Final traceability,
+quality-gate results, and residual risks are recorded in the
+[completion audit](docs/verification.md).
 
 ## License
 

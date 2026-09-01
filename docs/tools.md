@@ -18,8 +18,8 @@ strict: unknown fields, malformed identifiers, and mismatched cursors are reject
 | `iceberg_api_get_member`              | exact type plus published member label or anchor, version | Read one overload/member without guessing from a search hit.                      |
 | `iceberg_api_compare_versions`        | from/to versions, kind, optional package, limit/cursor    | Find exact added and removed package, type, or member identities.                 |
 | `iceberg_source_get_type`             | exact fully qualified name, start line, line count        | Read a bounded, line-numbered source window with module/path/revision provenance. |
-| `iceberg_source_search`               | literal, limit                                            | Search production Java files literally; regular expressions are not accepted.     |
-| `iceberg_source_find_implementations` | exact fully qualified name, limit                         | Find lexical `extends`/`implements` evidence in production source.                |
+| `iceberg_source_search`               | literal, limit/cursor                                     | Search production Java files literally; regular expressions are not accepted.     |
+| `iceberg_source_find_implementations` | exact fully qualified name, limit/cursor                  | Find lexical `extends`/`implements` evidence in production source.                |
 
 Recommended lookup flow:
 
@@ -108,9 +108,10 @@ The full operation/method/path mapping is maintained in [coverage.md](coverage.m
 
 ## Pagination and output bounds
 
-Use the returned cursor unchanged with the same immutable query arguments. A cursor is not an
-authorization token, but it is query-bound and bounded in size. Changing the version, filter,
-namespace, operation, or other bound input causes an error instead of silently changing the page.
+Use the returned cursor unchanged with the same immutable query arguments. It does not replace MCP
+or catalog authentication, but catalog cursors can contain a private upstream page token. Changing
+the version, filter, namespace, operation, or other bound input causes an error instead of silently
+changing the page.
 
 Choose smaller pages or source windows when a result reaches `ICEBERG_MAX_RESPONSE_CHARS`. The
 server does not silently cut JSON or source in the middle of a response; it returns a `LimitError`

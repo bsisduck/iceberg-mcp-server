@@ -6,16 +6,16 @@ Status legend: planned, implemented, contract-tested, protocol-tested.
 
 | Surface                           | Provider evidence                             | MCP capability                                              | Status          |
 | --------------------------------- | --------------------------------------------- | ----------------------------------------------------------- | --------------- |
-| Available Javadoc/source versions | Configured providers and source Git identity  | `iceberg_api_list_versions`                                 | implemented     |
+| Available Javadoc/source versions | Configured providers and source Git identity  | `iceberg_api_list_versions`                                 | protocol-tested |
 | Packages                          | `package-search-index.js`                     | `iceberg_api_browse`, package resource                      | protocol-tested |
 | Types                             | `type-search-index.js`, type HTML             | `iceberg_api_search`, `iceberg_api_get_type`, type resource | protocol-tested |
-| Members and overloads             | `member-search-index.js`, member details HTML | `iceberg_api_search`, `iceberg_api_get_member`              | implemented     |
-| Deprecation/inheritance/details   | Type HTML                                     | `iceberg_api_get_type`, `iceberg_api_get_member`            | implemented     |
-| Cross-version additions/removals  | Two immutable published index sets            | `iceberg_api_compare_versions`                              | implemented     |
+| Members and overloads             | `member-search-index.js`, member details HTML | `iceberg_api_search`, `iceberg_api_get_member`              | protocol-tested |
+| Deprecation/inheritance/details   | Type HTML                                     | `iceberg_api_get_type`, `iceberg_api_get_member`            | protocol-tested |
+| Cross-version additions/removals  | Two immutable published index sets            | `iceberg_api_compare_versions`                              | protocol-tested |
 | Source module/path/revision       | Configured checkout index                     | `iceberg_source_get_type`, source resource                  | protocol-tested |
-| Literal source evidence           | Configured production Java files              | `iceberg_source_search`                                     | implemented     |
-| Implementations/extensions        | Javadoc inheritance plus lexical declarations | `iceberg_source_find_implementations`                       | implemented     |
-| Stability classification          | Source module and upstream RevAPI module set  | Included in type/source results                             | implemented     |
+| Literal source evidence           | Configured production Java files              | `iceberg_source_search`                                     | protocol-tested |
+| Implementations/extensions        | Lexical source declarations                   | `iceberg_source_find_implementations`                       | protocol-tested |
+| Stability classification          | Source module and upstream RevAPI module set  | Included in type/source results                             | protocol-tested |
 
 The matrix covers the full index rather than a curated class list. Pagination, filtering, and output
 budgets are part of each capability's contract.

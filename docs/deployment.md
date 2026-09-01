@@ -59,9 +59,9 @@ Choose at most one mode:
    `client_id:client_secret`.
 3. No credential, for a catalog that intentionally permits it.
 
-OAuth uses `grant_type=client_credentials` and `scope=catalog`, requires a Bearer token response,
-caches it until one minute before expiry, and caps the token response. The external URI must use
-HTTPS outside loopback. Redirects are rejected.
+OAuth uses `grant_type=client_credentials` and `scope=catalog`, requires a JSON Bearer token
+response, caches it until one minute before expiry, and caps the token response. The external URI
+must use HTTPS outside loopback. Redirects are rejected.
 
 The catalog URI and OAuth URI are startup-only operator inputs; no model-callable tool accepts a
 URL. Catalog initialization fails closed if config discovery, authentication, content type, size, or
@@ -96,6 +96,7 @@ model and residual risks.
 ## Capacity and limits
 
 - HTTP requests are rejected before MCP dispatch above `ICEBERG_MCP_MAX_REQUEST_BYTES`.
+- Outbound REST Catalog JSON bodies are capped at 1 MiB for both stdio and HTTP callers.
 - Javadoc and catalog fetches have fixed byte bounds, deadlines, and concurrency caps.
 - Final tool/resource JSON is bounded by `ICEBERG_MAX_RESPONSE_CHARS`.
 - Javadoc release indexes cache for 24 hours; nightly indexes cache for five minutes. Type pages use

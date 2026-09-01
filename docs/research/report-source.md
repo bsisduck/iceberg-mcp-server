@@ -85,13 +85,13 @@ local `main` surface exists everywhere. See the
 
 The protocol requires clients to call `/v1/config` first. Server defaults are applied before client
 configuration and server overrides after it; an optional `endpoints` list advertises supported
-operations. This discovery response must be cached only for a bounded period and remain inspectable
-through a read-only tool.
+operations. The implemented runtime discovers once during startup, keeps the effective result
+inspectable through a read-only tool, and re-discovers on process restart.
 
 List operations have unusual pagination semantics. Omitting `pageToken` asks a supporting server to
 return all results, while an empty `pageToken` initiates a paginated sequence. Missing or `null`
 `next-page-token` means completion. MCP list tools should default to paginated requests with a local
-item/character budget, surface the opaque next token, and offer bounded automatic traversal.
+item/character budget and surface the opaque next token through a query-bound cursor.
 
 Mutations use change-based commits and typed requirements to implement optimistic concurrency. The
 current release spec also defines optional UUIDv7 `Idempotency-Key` behavior; support is advertised
@@ -104,7 +104,7 @@ conflicts or retry them as transient failures.
 The REST OpenAPI document applies OAuth2 or Bearer authorization across routes. Its built-in
 `/v1/oauth/tokens` endpoint is explicitly deprecated since Iceberg 1.6.0 and planned for removal in
 2.0; clients are encouraged to configure an external `oauth2-server-uri`. The MCP server should
-accept a bearer token or OAuth client credentials only through environment/file-descriptor based
+accept a bearer token or OAuth client credentials only through environment or mounted-secret-file
 runtime configuration, fetch and refresh tokens internally, and redact authorization data from
 errors and telemetry. It should not expose token exchange as a model-callable tool.
 
@@ -139,7 +139,7 @@ because a single Javadoc index contains more than fifteen thousand members.
 
 ## Architecture implications
 
-- Use explicit providers: `JavadocProvider`, `SourceProvider`, and `RestCatalogClient`; do not make
+- Use explicit providers: `JavadocProvider`, `SourceProvider`, and `CatalogClient`; do not make
   tools aware of fetch or filesystem details.
 - Store an immutable in-memory search index keyed by version and base URL. Bound remote response
   bytes, request time, redirects, cache size, and concurrent fetches.
@@ -148,21 +148,19 @@ because a single Javadoc index contains more than fifteen thousand members.
 - Canonical resources should use stable URIs such as
   `iceberg://api/{version}/type/{fully-qualified-name}`. Search, comparison, source lookup, and
   catalog workflows belong in tools.
-- All list results use a common envelope with `items`, `count`, `has_more`, an opaque continuation
-  token, `truncated`, and provenance.
-- Mutating REST tools require typed bodies, correct destructive/idempotent hints, optional explicit
-  idempotency keys managed by the server, and no automatic retry for non-idempotent operations
-  unless the catalog advertised support.
+- Java API list results use a common envelope with `items`, `count`, `has_more`, an opaque
+  continuation token, `truncated`, and provenance.
+- Mutating REST tools require typed bodies, correct destructive/idempotent hints, internally
+  generated idempotency keys, and no automatic retry unless the catalog advertised support.
 - REST capability discovery gates tool execution. Unsupported advertised endpoints fail before a
   network mutation with an actionable message.
-- The server starts in documentation-only mode. REST tools report a clear configuration error rather
-  than preventing startup.
+- The server starts in documentation-only mode. REST tools remain absent when no catalog is
+  configured and do not prevent Java documentation startup.
 
 ## Material limitations and unresolved items
 
 - Aggregate Javadoc does not encode the Gradle module for each type. Module mapping requires source
-  indexing; remote-only results may have `module: unknown` unless a curated package/module map is
-  safe.
+  indexing; remote-only results are explicitly `public-unclassified` with no module evidence.
 - Javadoc search indexes identify members but do not contain full documentation. Individual HTML
   pages must be fetched and parsed on demand.
 - REST implementations may advertise only a subset of the stable specification and may add vendor
