@@ -1,5 +1,3 @@
-import { errorMessage } from './errors.js';
-
 export interface ErrorReporter {
   report(error: unknown, context: string): void;
 }
@@ -10,7 +8,8 @@ export const stderrReporter: ErrorReporter = {
       `${JSON.stringify({
         level: 'error',
         context,
-        message: errorMessage(error),
+        error_name: error instanceof Error ? error.name : 'NonErrorThrown',
+        message: 'Unexpected internal error',
         timestamp: new Date().toISOString(),
       })}\n`,
     );

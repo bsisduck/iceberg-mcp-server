@@ -322,6 +322,29 @@ describe('CatalogClient', (): void => {
     client.close();
   });
 
+  it('bounds outbound catalog bodies from every transport', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        jsonResponse({
+          defaults: {},
+          endpoints: ['POST /v1/{prefix}/namespaces'],
+          overrides: {},
+        }),
+      ),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch, limits });
+
+    await expect(
+      client.call({
+        body: { namespace: ['analytics'], properties: { large: 'x'.repeat(1_048_576) } },
+        operationId: 'createNamespace',
+        path: {},
+      }),
+    ).rejects.toThrow(/request exceeds 1048576 bytes/u);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    client.close();
+  });
+
   it('uses Iceberg legacy defaults for an empty endpoint advertisement', async (): Promise<void> => {
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(jsonResponse({ defaults: {}, endpoints: [], overrides: {} })),

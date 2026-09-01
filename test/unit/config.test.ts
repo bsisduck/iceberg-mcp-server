@@ -91,6 +91,9 @@ describe('loadConfig', (): void => {
     await expect(loadConfig({ ICEBERG_CATALOG_TOKEN_FILE: oversized }, cwd)).rejects.toThrow(
       /regular file/u,
     );
+    await expect(loadConfig({ ICEBERG_CATALOG_TOKEN: 'é'.repeat(8_193) }, cwd)).rejects.toThrow(
+      /at most 16384 bytes/u,
+    );
   });
 
   it('rejects ambiguous secret sources', async (): Promise<void> => {

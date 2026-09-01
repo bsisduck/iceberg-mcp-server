@@ -151,6 +151,9 @@ async function readSecret(
     throw new ConfigurationError(`${directName} and ${fileName} are mutually exclusive`);
   }
   if (direct !== undefined) {
+    if (Buffer.byteLength(direct, 'utf8') > MAX_SECRET_BYTES) {
+      throw new ConfigurationError(`${directName} must be at most ${MAX_SECRET_BYTES} bytes`);
+    }
     return direct;
   }
   if (file === undefined) {

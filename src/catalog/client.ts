@@ -27,6 +27,7 @@ const errorResponseSchema = z.looseObject({
     type: z.string().max(1_000).optional(),
   }),
 });
+const MAX_CATALOG_REQUEST_BYTES = 1_048_576;
 
 class Semaphore {
   readonly #waiting: (() => void)[] = [];
@@ -342,6 +343,9 @@ export class CatalogClient {
       url.searchParams.set('pageToken', decodeTokenCursor(call.cursor, cursorIdentity));
     }
     const body = call.body === undefined ? undefined : JSON.stringify(call.body);
+    if (body !== undefined && Buffer.byteLength(body, 'utf8') > MAX_CATALOG_REQUEST_BYTES) {
+      throw new LimitError(`Catalog request exceeds ${MAX_CATALOG_REQUEST_BYTES} bytes`);
+    }
     const canRetryWithoutKey = operation.method === 'GET' || operation.method === 'HEAD';
     const idempotencyKey =
       !canRetryWithoutKey && this.discovery.idempotencyKeyLifetime !== undefined

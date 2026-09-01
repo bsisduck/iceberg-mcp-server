@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AsyncTtlCache } from '../../src/shared/cache.js';
 import { BoundedFetcher } from '../../src/shared/fetch.js';
 import { InputError, UpstreamError } from '../../src/shared/errors.js';
+import { stderrReporter } from '../../src/shared/logging.js';
 import {
   decodeCursor,
   decodeTokenCursor,
@@ -293,7 +294,7 @@ describe('tool responses', (): void => {
       () => Promise.resolve({ count: 1 }),
       (result) => `Count: ${result.count}`,
       reporter,
-      100,
+      1_000,
     );
 
     expect(response).toMatchObject({
@@ -309,7 +310,7 @@ describe('tool responses', (): void => {
       () => Promise.reject(new InputError('bad cursor')),
       () => 'unused',
       reporter,
-      100,
+      1_000,
     );
     expect(expected).toMatchObject({
       isError: true,
@@ -326,7 +327,7 @@ describe('tool responses', (): void => {
         ),
       () => 'unused',
       reporter,
-      100,
+      1_000,
     );
     expect(upstream.structuredContent).toMatchObject({
       error: {
@@ -352,7 +353,7 @@ describe('tool responses', (): void => {
       () => Promise.reject(new Error('sensitive internal detail')),
       () => 'unused',
       reporter,
-      100,
+      1_000,
     );
     expect(unexpected).toMatchObject({
       isError: true,
@@ -364,5 +365,45 @@ describe('tool responses', (): void => {
       (unexpected.structuredContent as { error: { correlation_id: string } }).error.correlation_id,
     ).toMatch(/^[0-9a-f-]{36}$/u);
     expect(reporter.report).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds rendered text and expected error details', async (): Promise<void> => {
+    const reporter = { report: vi.fn() };
+    const rendered = await executeTool(
+      () => Promise.resolve({ ok: true }),
+      () => 'x'.repeat(5_000),
+      reporter,
+      4_096,
+    );
+    expect(rendered).toMatchObject({
+      isError: true,
+      structuredContent: { error: { type: 'LimitError' } },
+    });
+
+    const expected = await executeTool(
+      () => Promise.reject(new InputError('x'.repeat(10_000))),
+      () => 'unused',
+      reporter,
+      4_096,
+    );
+    expect(expected).toMatchObject({
+      isError: true,
+      structuredContent: { error: { type: 'LimitError' } },
+    });
+    expect(JSON.stringify(expected).length).toBeLessThanOrEqual(4_096);
+  });
+});
+
+describe('default error logging', (): void => {
+  it('does not print raw unexpected exception details', (): void => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    stderrReporter.report(new Error('Bearer sensitive-token'), 'tool call correlation-id');
+
+    const output = String(write.mock.calls[0]?.[0] ?? '');
+    expect(output).toContain('correlation-id');
+    expect(output).toContain('Unexpected internal error');
+    expect(output).not.toContain('sensitive-token');
+    write.mockRestore();
   });
 });
