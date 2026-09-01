@@ -321,6 +321,8 @@ describe('HTTP transport', (): void => {
       method: 'POST',
     });
     expect(accepted.status).toBe(200);
+    expect(accepted.headers.get('cache-control')).toContain('no-cache');
+    expect(accepted.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   it('rejects unbounded, malformed, and unsupported bodies before dispatch', async (): Promise<void> => {

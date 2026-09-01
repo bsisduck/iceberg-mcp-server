@@ -145,6 +145,7 @@ export async function startHttp(
         response.end('Not found');
         return;
       }
+      response.setHeader('x-content-type-options', 'nosniff');
       if (!validateHost(request, response) || !validateOrigin(request, response)) {
         return;
       }
