@@ -78,11 +78,12 @@ const readOnlyLocal = { ...readOnlyRemote, openWorldHint: false } as const;
 export interface ApiToolDependencies {
   readonly api: ApiService;
   readonly defaultVersion: string;
+  readonly maxResponseChars: number;
   readonly reporter: ErrorReporter;
 }
 
 export function registerApiTools(server: McpServer, dependencies: ApiToolDependencies): void {
-  const { api, defaultVersion, reporter } = dependencies;
+  const { api, defaultVersion, maxResponseChars, reporter } = dependencies;
 
   server.registerTool(
     'iceberg_api_list_versions',
@@ -112,6 +113,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         () => api.listVersions(),
         (result) => `Found ${result.count} configured Iceberg API identities.`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -138,6 +140,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `Returned ${result.count} ${kind} records${result.has_more ? '; another page is available.' : '.'}`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -169,6 +172,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `Found ${result.count} results for “${query}”${result.has_more ? '; another page is available.' : '.'}`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -219,6 +223,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `${result.title}: ${result.description ?? 'No type description is published.'}${result.has_more_members ? ' More members are available.' : ''}`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -255,6 +260,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `${result.type_fully_qualified_name}#${result.label}: ${result.description ?? 'No member description is published.'}`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -305,6 +311,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `Returned ${result.count} ${kind} identity changes from ${fromVersion} to ${toVersion}.`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -345,6 +352,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `${result.fullyQualifiedName} from ${result.relativePath}, lines ${result.startLine}-${result.endLine}.`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -374,6 +382,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         () => api.searchSource({ limit, literal }),
         (result) => `Found ${result.count} literal source matches for “${literal}”.`,
         reporter,
+        maxResponseChars,
       ),
   );
 
@@ -404,6 +413,7 @@ export function registerApiTools(server: McpServer, dependencies: ApiToolDepende
         (result) =>
           `Found ${result.count} lexical implementation declarations for ${fullyQualifiedName}.`,
         reporter,
+        maxResponseChars,
       ),
   );
 }

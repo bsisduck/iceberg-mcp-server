@@ -59,9 +59,15 @@ export async function executeTool<T extends object>(
   operation: () => Promise<T>,
   render: (result: T) => string,
   reporter: ErrorReporter,
+  maxResponseChars: number,
 ): Promise<CallToolResult> {
   try {
     const result = await operation();
+    if (JSON.stringify(result).length > maxResponseChars) {
+      throw new LimitError(
+        `Tool response exceeds ${maxResponseChars} characters; request a smaller page or source window`,
+      );
+    }
     return {
       content: [{ type: 'text', text: render(result) }],
       structuredContent: result,

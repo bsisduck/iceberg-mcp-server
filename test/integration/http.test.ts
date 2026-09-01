@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import type { AppConfig } from '../../src/config.js';
 import type { ErrorReporter } from '../../src/shared/logging.js';
@@ -11,6 +14,7 @@ import type { Server } from 'node:http';
 
 const handles: { readonly http: HttpServerHandle; readonly services: Services }[] = [];
 const mockCatalogs: Server[] = [];
+const temporaryDirectories: string[] = [];
 const reporter: ErrorReporter = {
   report(): void {
     // Tests assert HTTP responses; transport errors are not expected here.
@@ -87,6 +91,73 @@ async function startMockCatalog(): Promise<URL> {
   return new URL(`http://127.0.0.1:${address.port}/`);
 }
 
+async function startMockJavadoc(): Promise<URL> {
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    if (pathname.endsWith('/package-search-index.js')) {
+      response.setHeader('content-type', 'application/javascript');
+      response.end('packageSearchIndex = [{"l":"org.apache.iceberg"}];updateSearchResults();');
+      return;
+    }
+    if (pathname.endsWith('/type-search-index.js')) {
+      response.setHeader('content-type', 'application/javascript');
+      response.end(
+        'typeSearchIndex = [{"p":"org.apache.iceberg","l":"Table"}];updateSearchResults();',
+      );
+      return;
+    }
+    if (pathname.endsWith('/member-search-index.js')) {
+      response.setHeader('content-type', 'application/javascript');
+      response.end(
+        'memberSearchIndex = [{"p":"org.apache.iceberg","c":"Table","l":"schema()"}];updateSearchResults();',
+      );
+      return;
+    }
+    if (pathname.endsWith('/org/apache/iceberg/Table.html')) {
+      response.setHeader('content-type', 'text/html');
+      response.end(`
+        <main><h1 class="title">Interface Table</h1>
+        <section class="class-description"><div class="block">Access metadata.</div></section>
+        <section class="detail" id="schema()"><h3>schema</h3>
+        <div class="member-signature">Schema schema()</div></section></main>`);
+      return;
+    }
+    response.statusCode = 404;
+    response.end('not found');
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  mockCatalogs.push(server);
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('Mock Javadoc server has no TCP address');
+  }
+  return new URL(`http://127.0.0.1:${address.port}/javadoc/`);
+}
+
+async function startMockSourceCheckout(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), 'iceberg-http-source-test-'));
+  temporaryDirectories.push(root);
+  const api = path.join(root, 'api', 'src', 'main', 'java', 'org', 'apache', 'iceberg');
+  const core = path.join(root, 'core', 'src', 'main', 'java', 'org', 'apache', 'iceberg');
+  await mkdir(api, { recursive: true });
+  await mkdir(core, { recursive: true });
+  await writeFile(
+    path.join(api, 'Table.java'),
+    'package org.apache.iceberg; public interface Table { String marker = "search-marker"; }',
+  );
+  await writeFile(
+    path.join(core, 'BaseTable.java'),
+    'package org.apache.iceberg; public final class BaseTable implements Table {}',
+  );
+  return root;
+}
+
 async function start(config: AppConfig = testConfig()): Promise<HttpServerHandle> {
   const services = await createServices(config);
   const handle = await startHttp({ config, reporter, services }, reporter);
@@ -94,18 +165,29 @@ async function start(config: AppConfig = testConfig()): Promise<HttpServerHandle
   return handle;
 }
 
-async function mcpPost(address: URL, message: object): Promise<Record<string, unknown>> {
+async function mcpPost(
+  address: URL,
+  message: object,
+  protocolVersion?: string,
+): Promise<Record<string, unknown>> {
+  const method = (message as { method?: unknown }).method;
   const response = await fetch(address, {
     body: JSON.stringify(message),
     headers: {
       accept: 'application/json, text/event-stream',
       'content-type': 'application/json',
       origin: 'http://127.0.0.1',
+      ...(protocolVersion === undefined
+        ? {}
+        : {
+            'mcp-method': typeof method === 'string' ? method : '',
+            'mcp-protocol-version': protocolVersion,
+          }),
     },
     method: 'POST',
   });
-  expect(response.status).toBe(200);
   const text = await response.text();
+  expect(response.status, text).toBe(200);
   const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
   return JSON.parse(dataLine?.slice(6) ?? text) as Record<string, unknown>;
 }
@@ -118,6 +200,9 @@ afterEach(async (): Promise<void> => {
     }),
   );
   await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+  );
+  await Promise.all(
     mockCatalogs.splice(0).map(
       (server) =>
         new Promise<void>((resolve, reject) => {
@@ -128,6 +213,40 @@ afterEach(async (): Promise<void> => {
 });
 
 describe('HTTP transport', (): void => {
+  it('serves the 2026-07-28 per-request envelope and discovery handshake', async (): Promise<void> => {
+    const handle = await start();
+    const envelope = {
+      'io.modelcontextprotocol/clientCapabilities': {},
+      'io.modelcontextprotocol/clientInfo': { name: 'modern-integration-test', version: '1.0.0' },
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+    };
+    const discovered = await mcpPost(
+      handle.address,
+      {
+        id: 1,
+        jsonrpc: '2.0',
+        method: 'server/discover',
+        params: { _meta: envelope },
+      },
+      '2026-07-28',
+    );
+
+    expect(discovered['error']).toBeUndefined();
+    expect(JSON.stringify(discovered['result'])).toContain('iceberg-mcp-server');
+
+    const listed = await mcpPost(
+      handle.address,
+      {
+        id: 2,
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        params: { _meta: envelope },
+      },
+      '2026-07-28',
+    );
+    expect((listed['result'] as { tools: unknown[] }).tools).toHaveLength(9);
+  });
+
   it('serves MCP initialization through the current stateless handler', async (): Promise<void> => {
     const handle = await start();
     const response = await fetch(handle.address, {
@@ -260,6 +379,58 @@ describe('HTTP transport', (): void => {
     ]);
   });
 
+  it('executes every Java API and source tool through MCP', async (): Promise<void> => {
+    const baseUrl = await startMockJavadoc();
+    const sourceDir = await startMockSourceCheckout();
+    const configured = testConfig();
+    const handle = await start({
+      ...configured,
+      javadoc: { baseUrl, version: '1.11.0' },
+      sourceDir,
+    });
+    const calls: readonly [string, Record<string, unknown>][] = [
+      ['iceberg_api_list_versions', {}],
+      ['iceberg_api_browse', { kind: 'type', limit: 10, version: '1.11.0' }],
+      ['iceberg_api_search', { limit: 10, query: 'Table', scope: 'all', version: '1.11.0' }],
+      [
+        'iceberg_api_get_type',
+        { fully_qualified_name: 'org.apache.iceberg.Table', member_limit: 10, version: '1.11.0' },
+      ],
+      [
+        'iceberg_api_get_member',
+        {
+          fully_qualified_name: 'org.apache.iceberg.Table',
+          member: 'schema()',
+          version: '1.11.0',
+        },
+      ],
+      [
+        'iceberg_api_compare_versions',
+        { from_version: '1.10.0', kind: 'type', limit: 10, to_version: '1.11.0' },
+      ],
+      [
+        'iceberg_source_get_type',
+        { fully_qualified_name: 'org.apache.iceberg.Table', line_count: 10, start_line: 1 },
+      ],
+      ['iceberg_source_search', { limit: 10, literal: 'search-marker' }],
+      [
+        'iceberg_source_find_implementations',
+        { fully_qualified_name: 'org.apache.iceberg.Table', limit: 10 },
+      ],
+    ];
+
+    for (const [index, [name, arguments_]] of calls.entries()) {
+      const response = await mcpPost(handle.address, {
+        id: 20 + index,
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { arguments: arguments_, name },
+      });
+      expect(response['error'], name).toBeUndefined();
+      expect((response['result'] as { isError?: boolean }).isError, name).not.toBe(true);
+    }
+  });
+
   it('registers only discovered catalog tools and gates mutations', async (): Promise<void> => {
     const catalogUri = await startMockCatalog();
     const readOnlyHandle = await start(withCatalog(testConfig(), catalogUri, false));
@@ -299,6 +470,14 @@ describe('HTTP transport', (): void => {
       (configCall['result'] as { structuredContent: { operation_id: string } }).structuredContent
         .operation_id,
     ).toBe('getConfig');
+
+    const configResource = await mcpPost(readOnlyHandle.address, {
+      id: 7,
+      jsonrpc: '2.0',
+      method: 'resources/read',
+      params: { uri: 'iceberg://catalog/config' },
+    });
+    expect(JSON.stringify(configResource['result'])).toContain('GET /v1/{prefix}/namespaces');
   });
 
   it('advertises canonical resources and user-selected workflow prompts', async (): Promise<void> => {
@@ -344,5 +523,52 @@ describe('HTTP transport', (): void => {
       .messages[0]?.content.text;
     expect(promptText).toContain('iceberg_api_search');
     expect(promptText).toContain('1.11.0');
+
+    const migrationResponse = await mcpPost(handle.address, {
+      id: 10,
+      jsonrpc: '2.0',
+      method: 'prompts/get',
+      params: {
+        arguments: { from_version: '1.10.0', goal: 'Upgrade safely', to_version: '1.11.0' },
+        name: 'iceberg-api-migration',
+      },
+    });
+    expect(JSON.stringify(migrationResponse['result'])).toContain('iceberg_api_compare_versions');
+
+    const investigationResponse = await mcpPost(handle.address, {
+      id: 11,
+      jsonrpc: '2.0',
+      method: 'prompts/get',
+      params: {
+        arguments: { question: 'Which namespaces contain tables?' },
+        name: 'iceberg-catalog-investigation',
+      },
+    });
+    expect(JSON.stringify(investigationResponse['result'])).toContain('iceberg_catalog_get_config');
+  });
+
+  it('reads canonical Javadoc resources with bounded JSON content', async (): Promise<void> => {
+    const baseUrl = await startMockJavadoc();
+    const configured = testConfig();
+    const handle = await start({
+      ...configured,
+      javadoc: { baseUrl, version: '1.11.0' },
+    });
+
+    const packageResponse = await mcpPost(handle.address, {
+      id: 12,
+      jsonrpc: '2.0',
+      method: 'resources/read',
+      params: { uri: 'iceberg://api/1.11.0/package/org.apache.iceberg' },
+    });
+    expect(JSON.stringify(packageResponse['result'])).toContain('org.apache.iceberg.Table');
+
+    const typeResponse = await mcpPost(handle.address, {
+      id: 13,
+      jsonrpc: '2.0',
+      method: 'resources/read',
+      params: { uri: 'iceberg://api/1.11.0/type/org.apache.iceberg.Table' },
+    });
+    expect(JSON.stringify(typeResponse['result'])).toContain('Interface Table');
   });
 });

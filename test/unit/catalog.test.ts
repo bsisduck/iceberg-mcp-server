@@ -6,6 +6,7 @@ import {
   ALL_CATALOG_OPERATIONS,
   CATALOG_OPERATIONS,
   CURRENT_CATALOG_EXTENSION_OPERATIONS,
+  operationById,
 } from '../../src/catalog/operations.js';
 import { catalogToolDefinitions } from '../../src/capabilities/catalog-tools.js';
 
@@ -174,6 +175,80 @@ describe('catalog operation coverage', (): void => {
 });
 
 describe('CatalogClient', (): void => {
+  it('requires a catalog URI before discovery', async (): Promise<void> => {
+    await expect(
+      CatalogClient.create({ config: config({ uri: undefined }), fetch: vi.fn(), limits }),
+    ).rejects.toThrow(/URI is required/u);
+    await expect(
+      CatalogClient.discover(
+        { config: config({ uri: undefined }), fetch: vi.fn(), limits },
+        { authorization: () => Promise.resolve(undefined), clear: vi.fn() },
+      ),
+    ).rejects.toThrow(/URI is required/u);
+  });
+
+  it.each([
+    [new Response('{}', { headers: { 'content-type': 'text/plain' } }), /content type/u],
+    [new Response('{', { headers: { 'content-type': 'application/json' } }), /invalid JSON/u],
+    [jsonResponse([]), /response is invalid/u],
+    [jsonResponse({ error: { code: 503, message: 'busy', type: 'Busy' } }, 503), /busy/u],
+  ])('rejects invalid discovery responses %#', async (response, expected): Promise<void> => {
+    await expect(
+      CatalogClient.create({
+        config: config(),
+        fetch: () => Promise.resolve(response.clone()),
+        limits,
+      }),
+    ).rejects.toThrow(expected);
+  });
+
+  it('normalizes discovery network failures and timeouts', async (): Promise<void> => {
+    await expect(
+      CatalogClient.create({
+        config: config(),
+        fetch: () => Promise.reject(new Error('network failed')),
+        limits,
+      }),
+    ).rejects.toMatchObject({ retryable: true, status: 502 });
+
+    await expect(
+      CatalogClient.create({
+        config: config(),
+        fetch: (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          }),
+        limits: { ...limits, requestTimeoutMs: 1 },
+      }),
+    ).rejects.toMatchObject({ retryable: true, status: 504 });
+  });
+
+  it('uses default endpoints, safe separator fallback, and redacted merged config', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        jsonResponse({
+          defaults: { password: 'do-not-return', 'namespace-separator': '%' },
+          overrides: {},
+        }),
+      ),
+    );
+    const client = await CatalogClient.create({
+      config: config({ warehouse: undefined }),
+      fetch,
+      limits,
+    });
+
+    expect(client.supports(operationById('listTables'))).toBe(true);
+    expect(JSON.stringify(client.configResult())).not.toContain('do-not-return');
+    expect(client.configResult()).toMatchObject({ operation_id: 'getConfig', status: 200 });
+    expect(await client.call({ operationId: 'getConfig', path: {} })).toEqual(
+      client.configResult(),
+    );
+    client.close();
+  });
+
   it('discovers config, preserves the operator origin/base path, and paginates opaquely', async (): Promise<void> => {
     const requests: Request[] = [];
     let listCall = 0;
@@ -365,6 +440,91 @@ describe('CatalogClient', (): void => {
     });
     expect(JSON.stringify(credentials)).not.toContain('AKIA');
     expect(JSON.stringify(credentials)).not.toContain('secret"');
+    client.close();
+  });
+
+  it('returns true for HEAD 204 and rejects missing path inputs before fetching', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      const request = new Request(input);
+      if (request.url.includes('/v1/config')) {
+        return Promise.resolve(
+          jsonResponse({
+            defaults: {},
+            endpoints: [
+              'HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table}',
+              'GET /v1/{prefix}/namespaces/{namespace}/tables',
+            ],
+            overrides: {},
+          }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const client = await CatalogClient.create({ config: config(), fetch, limits });
+
+    const exists = await client.call({
+      operationId: 'tableExists',
+      path: { namespace: ['analytics'], table: 'events' },
+    });
+    expect(exists.data).toEqual({ exists: true });
+    await expect(client.call({ operationId: 'listTables', path: {} })).rejects.toThrow(
+      /Missing path input/u,
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+    client.close();
+  });
+
+  it.each([
+    [new Response('{}', { headers: { 'content-type': 'text/plain' } }), /content type/u],
+    [new Response('{', { headers: { 'content-type': 'application/json' } }), /invalid JSON/u],
+    [jsonResponse({ namespaces: 'invalid' }), /does not match/u],
+    [jsonResponse({ namespaces: [['x'.repeat(1_200)]] }), /characters/u],
+  ])('validates successful operation responses %#', async (operationResponse, expected) => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      const request = new Request(input);
+      return Promise.resolve(
+        request.url.includes('/v1/config')
+          ? jsonResponse({
+              defaults: {},
+              endpoints: ['GET /v1/{prefix}/namespaces'],
+              overrides: {},
+            })
+          : operationResponse.clone(),
+      );
+    });
+    const client = await CatalogClient.create({
+      config: config(),
+      fetch,
+      limits: { ...limits, maxResponseChars: 1_000 },
+    });
+
+    await expect(
+      client.call({ operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } }),
+    ).rejects.toThrow(expected);
+    client.close();
+  });
+
+  it('accepts empty successful responses for response-less mutations', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      const request = new Request(input);
+      return Promise.resolve(
+        request.url.includes('/v1/config')
+          ? jsonResponse({
+              defaults: {},
+              endpoints: ['DELETE /v1/{prefix}/namespaces/{namespace}'],
+              overrides: {},
+            })
+          : new Response(null, { status: 204 }),
+      );
+    });
+    const client = await CatalogClient.create({ config: config(), fetch, limits });
+
+    const result = await client.call({
+      operationId: 'dropNamespace',
+      path: { namespace: ['empty'] },
+    });
+
+    expect(result).toMatchObject({ data: null, operation_id: 'dropNamespace', status: 204 });
     client.close();
   });
 });

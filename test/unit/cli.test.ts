@@ -1,6 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { parseArgs } from '../../src/cli.js';
+const mocks = vi.hoisted(() => ({
+  installShutdownHandlers: vi.fn(),
+  loadConfig: vi.fn(),
+  startRuntime: vi.fn(),
+}));
+
+vi.mock('../../src/config.js', () => ({ loadConfig: mocks.loadConfig }));
+vi.mock('../../src/runtime.js', () => ({
+  installShutdownHandlers: mocks.installShutdownHandlers,
+  startRuntime: mocks.startRuntime,
+}));
+
+import { main, parseArgs, USAGE } from '../../src/cli.js';
+
+afterEach((): void => {
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+});
 
 describe('parseArgs', (): void => {
   it('uses start with no transport override by default', (): void => {
@@ -20,5 +37,48 @@ describe('parseArgs', (): void => {
     expect(() => parseArgs(['--unknown'])).toThrow(/Unknown argument/u);
     expect(() => parseArgs(['--transport'])).toThrow(/must be stdio or http/u);
     expect(() => parseArgs(['--transport', 'tcp'])).toThrow(/must be stdio or http/u);
+  });
+
+  it('prints help and version without starting a runtime', async (): Promise<void> => {
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await main(['--help']);
+    await main(['--version']);
+
+    expect(write).toHaveBeenNthCalledWith(1, USAGE);
+    expect(write).toHaveBeenNthCalledWith(2, '0.1.0\n');
+    expect(mocks.loadConfig).not.toHaveBeenCalled();
+  });
+
+  it('loads an overridden transport, starts, and reports an HTTP address', async (): Promise<void> => {
+    const loaded = { transport: 'http' };
+    const handle = {
+      address: new URL('http://127.0.0.1:3000/mcp'),
+      close: vi.fn(),
+    };
+    mocks.loadConfig.mockResolvedValue(loaded);
+    mocks.startRuntime.mockResolvedValue(handle);
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await main(['--transport', 'http']);
+
+    expect(mocks.loadConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ ICEBERG_MCP_TRANSPORT: 'http' }),
+    );
+    expect(mocks.startRuntime).toHaveBeenCalledWith(loaded, expect.any(Object));
+    expect(mocks.installShutdownHandlers).toHaveBeenCalledWith(handle, expect.any(Object));
+    expect(write).toHaveBeenCalledWith(
+      'Iceberg MCP server listening at http://127.0.0.1:3000/mcp\n',
+    );
+  });
+
+  it('keeps stdio stdout protocol-only when starting without an address', async (): Promise<void> => {
+    mocks.loadConfig.mockResolvedValue({ transport: 'stdio' });
+    mocks.startRuntime.mockResolvedValue({ address: undefined, close: vi.fn() });
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await main([]);
+
+    expect(write).not.toHaveBeenCalled();
   });
 });

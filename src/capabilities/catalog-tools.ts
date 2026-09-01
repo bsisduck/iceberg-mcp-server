@@ -647,6 +647,7 @@ export function registerCatalogTools(
   client: CatalogClient,
   allowMutations: boolean,
   reporter: ErrorReporter,
+  maxResponseChars: number,
 ): void {
   for (const definition of DEFINITIONS) {
     const operation = operationById(definition.operationId);
@@ -680,6 +681,7 @@ export function registerCatalogTools(
           (result) =>
             `${definition.title} completed with HTTP ${result.status}${result.next_cursor === null ? '.' : '; another page is available.'}`,
           reporter,
+          maxResponseChars,
         );
       },
     );

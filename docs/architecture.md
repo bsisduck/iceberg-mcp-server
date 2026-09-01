@@ -217,8 +217,9 @@ List/search results use a consistent object envelope:
 
 Every tool declares and returns a validated output schema. `structuredContent` is always an object
 for compatibility with older protocol eras. The text block is a concise Markdown rendering, not a
-second full JSON dump. Record-aware truncation occurs before serialization; responses state when
-more data is available.
+second full JSON dump. List and source inputs are record/window bounded and state when more data is
+available. A final serialized-size check protects every tool and resource; an oversized result
+returns a `LimitError` telling the caller to request a smaller page or source window.
 
 Opaque cursors are base64url-encoded, versioned JSON containing an offset or REST page token and a
 digest of immutable query parameters. They carry no authority. Decoding is strictly bounded and

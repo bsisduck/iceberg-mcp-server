@@ -4,7 +4,7 @@ import type { McpServer, Variables } from '@modelcontextprotocol/server';
 
 import type { ApiService } from '../api/api-service.js';
 import type { CatalogClient } from '../catalog/client.js';
-import { InputError } from '../shared/errors.js';
+import { InputError, LimitError } from '../shared/errors.js';
 
 function variable(variables: Variables, name: string): string {
   const value = variables[name];
@@ -19,12 +19,18 @@ interface JsonResourceResult {
   contents: { mimeType: string; text: string; uri: string }[];
 }
 
-function jsonResource(uri: URL, value: unknown): JsonResourceResult {
+function jsonResource(uri: URL, value: unknown, maxResponseChars: number): JsonResourceResult {
+  const text = JSON.stringify(value, null, 2);
+  if (text.length > maxResponseChars) {
+    throw new LimitError(
+      `Resource response exceeds ${maxResponseChars} characters; use the paginated tools with a smaller limit`,
+    );
+  }
   return {
     contents: [
       {
         mimeType: 'application/json',
-        text: JSON.stringify(value, null, 2),
+        text,
         uri: uri.href,
       },
     ],
@@ -34,6 +40,7 @@ function jsonResource(uri: URL, value: unknown): JsonResourceResult {
 export interface ResourceDependencies {
   readonly api: ApiService;
   readonly catalog: CatalogClient | undefined;
+  readonly maxResponseChars: number;
 }
 
 export function registerResources(server: McpServer, dependencies: ResourceDependencies): void {
@@ -55,6 +62,7 @@ export function registerResources(server: McpServer, dependencies: ResourceDepen
           packageName: variable(variables, 'package'),
           version: variable(variables, 'version'),
         }),
+        dependencies.maxResponseChars,
       ),
   );
 
@@ -75,6 +83,7 @@ export function registerResources(server: McpServer, dependencies: ResourceDepen
           memberLimit: 100,
           version: variable(variables, 'version'),
         }),
+        dependencies.maxResponseChars,
       ),
   );
 
@@ -95,6 +104,7 @@ export function registerResources(server: McpServer, dependencies: ResourceDepen
           lineCount: 500,
           startLine: 1,
         }),
+        dependencies.maxResponseChars,
       ),
   );
 
@@ -109,7 +119,7 @@ export function registerResources(server: McpServer, dependencies: ResourceDepen
         mimeType: 'application/json',
         title: 'Iceberg REST Catalog configuration',
       },
-      (uri) => jsonResource(uri, catalog.configResult()),
+      (uri) => jsonResource(uri, catalog.configResult(), dependencies.maxResponseChars),
     );
   }
 }

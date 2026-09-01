@@ -32,6 +32,7 @@ export function createIcebergServer(dependencies: ServerDependencies): McpServer
   registerApiTools(server, {
     api: dependencies.services.api,
     defaultVersion: dependencies.config.javadoc.version,
+    maxResponseChars: dependencies.config.limits.maxResponseChars,
     reporter: dependencies.reporter,
   });
   if (dependencies.services.catalog !== undefined) {
@@ -40,11 +41,13 @@ export function createIcebergServer(dependencies: ServerDependencies): McpServer
       dependencies.services.catalog,
       dependencies.config.catalog.allowMutations,
       dependencies.reporter,
+      dependencies.config.limits.maxResponseChars,
     );
   }
   registerResources(server, {
     api: dependencies.services.api,
     catalog: dependencies.services.catalog,
+    maxResponseChars: dependencies.config.limits.maxResponseChars,
   });
   registerPrompts(server, dependencies.config.javadoc.version);
   return server;
