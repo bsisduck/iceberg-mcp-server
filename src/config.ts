@@ -272,6 +272,27 @@ export async function loadConfig(
     throw new ConfigurationError('ICEBERG_CATALOG_WAREHOUSE must be at most 2048 characters');
   }
 
+  const catalogToken = await readSecret(env, 'ICEBERG_CATALOG_TOKEN', 'ICEBERG_CATALOG_TOKEN_FILE');
+  const oauth2Credential = await readSecret(
+    env,
+    'ICEBERG_OAUTH2_CREDENTIAL',
+    'ICEBERG_OAUTH2_CREDENTIAL_FILE',
+  );
+  if ((oauth2UriValue === undefined) !== (oauth2Credential === undefined)) {
+    throw new ConfigurationError(
+      'ICEBERG_OAUTH2_URI and ICEBERG_OAUTH2_CREDENTIAL must be configured together',
+    );
+  }
+  if (catalogToken !== undefined && oauth2Credential !== undefined) {
+    throw new ConfigurationError('catalog bearer and OAuth credentials are mutually exclusive');
+  }
+  if (
+    catalogUriValue === undefined &&
+    (catalogToken !== undefined || oauth2Credential !== undefined || warehouse !== undefined)
+  ) {
+    throw new ConfigurationError('catalog credentials and warehouse require ICEBERG_CATALOG_URI');
+  }
+
   return {
     catalog: {
       allowMutations: parseBoolean(
@@ -279,16 +300,12 @@ export async function loadConfig(
         env['ICEBERG_CATALOG_ALLOW_MUTATIONS'],
         false,
       ),
-      oauth2Credential: await readSecret(
-        env,
-        'ICEBERG_OAUTH2_CREDENTIAL',
-        'ICEBERG_OAUTH2_CREDENTIAL_FILE',
-      ),
+      oauth2Credential,
       oauth2Uri:
         oauth2UriValue === undefined
           ? undefined
           : parseUrl('ICEBERG_OAUTH2_URI', oauth2UriValue, { httpsOutsideLoopback: true }),
-      token: await readSecret(env, 'ICEBERG_CATALOG_TOKEN', 'ICEBERG_CATALOG_TOKEN_FILE'),
+      token: catalogToken,
       uri:
         catalogUriValue === undefined
           ? undefined

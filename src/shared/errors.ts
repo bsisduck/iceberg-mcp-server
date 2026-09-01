@@ -26,15 +26,32 @@ export class LimitError extends Error {
   }
 }
 
+export class CapabilityError extends Error {
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'CapabilityError';
+  }
+}
+
 export class UpstreamError extends Error {
   public readonly retryable: boolean;
   public readonly status: number;
+  public readonly upstreamCode: number | null;
+  public readonly upstreamType: string | null;
 
-  public constructor(message: string, status: number, retryable: boolean, options?: ErrorOptions) {
+  public constructor(
+    message: string,
+    status: number,
+    retryable: boolean,
+    options?: ErrorOptions,
+    details?: { readonly code?: number | undefined; readonly type?: string | undefined },
+  ) {
     super(message, options);
     this.name = 'UpstreamError';
     this.status = status;
     this.retryable = retryable;
+    this.upstreamCode = details?.code ?? null;
+    this.upstreamType = details?.type ?? null;
   }
 }
 

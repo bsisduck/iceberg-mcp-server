@@ -4,6 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 
 import {
   ConfigurationError,
+  CapabilityError,
   InputError,
   LimitError,
   NotFoundError,
@@ -15,6 +16,8 @@ import type { ErrorReporter } from './logging.js';
 export interface ToolErrorBody {
   readonly error: {
     readonly correlation_id: string | null;
+    readonly iceberg_code: number | null;
+    readonly iceberg_type: string | null;
     readonly message: string;
     readonly retryable: boolean;
     readonly status: number | null;
@@ -25,6 +28,7 @@ export interface ToolErrorBody {
 function expectedError(error: unknown): boolean {
   return (
     error instanceof ConfigurationError ||
+    error instanceof CapabilityError ||
     error instanceof InputError ||
     error instanceof LimitError ||
     error instanceof NotFoundError ||
@@ -41,6 +45,8 @@ function errorBody(error: unknown, reporter: ErrorReporter): ToolErrorBody {
   return {
     error: {
       correlation_id: correlationId,
+      iceberg_code: error instanceof UpstreamError ? error.upstreamCode : null,
+      iceberg_type: error instanceof UpstreamError ? error.upstreamType : null,
       message: expected ? errorMessage(error) : 'Internal error',
       retryable: error instanceof UpstreamError && error.retryable,
       status: error instanceof UpstreamError ? error.status : null,

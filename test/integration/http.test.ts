@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
 
 import type { AppConfig } from '../../src/config.js';
 import type { ErrorReporter } from '../../src/shared/logging.js';
@@ -6,8 +7,10 @@ import type { Services } from '../../src/services.js';
 import { createServices } from '../../src/services.js';
 import type { HttpServerHandle } from '../../src/transport/http.js';
 import { startHttp } from '../../src/transport/http.js';
+import type { Server } from 'node:http';
 
 const handles: { readonly http: HttpServerHandle; readonly services: Services }[] = [];
+const mockCatalogs: Server[] = [];
 const reporter: ErrorReporter = {
   report(): void {
     // Tests assert HTTP responses; transport errors are not expected here.
@@ -42,6 +45,48 @@ function testConfig(overrides: Partial<AppConfig['http']> = {}): AppConfig {
   };
 }
 
+function withCatalog(config: AppConfig, uri: URL, allowMutations: boolean): AppConfig {
+  return {
+    ...config,
+    catalog: { ...config.catalog, allowMutations, uri },
+  };
+}
+
+async function startMockCatalog(): Promise<URL> {
+  const server = createServer((request, response) => {
+    response.setHeader('content-type', 'application/json');
+    if (request.url?.startsWith('/v1/config') === true) {
+      response.end(
+        JSON.stringify({
+          defaults: {},
+          endpoints: ['GET /v1/{prefix}/namespaces', 'POST /v1/{prefix}/namespaces'],
+          overrides: {},
+        }),
+      );
+      return;
+    }
+    if (request.method === 'GET' && request.url?.startsWith('/v1/namespaces') === true) {
+      response.end(JSON.stringify({ namespaces: [['analytics']], 'next-page-token': null }));
+      return;
+    }
+    response.statusCode = 404;
+    response.end(JSON.stringify({ error: { code: 404, message: 'not found', type: 'NotFound' } }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  mockCatalogs.push(server);
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('Mock catalog has no TCP address');
+  }
+  return new URL(`http://127.0.0.1:${address.port}/`);
+}
+
 async function start(config: AppConfig = testConfig()): Promise<HttpServerHandle> {
   const services = await createServices(config);
   const handle = await startHttp({ config, reporter, services }, reporter);
@@ -71,6 +116,14 @@ afterEach(async (): Promise<void> => {
       await http.close();
       await services.close();
     }),
+  );
+  await Promise.all(
+    mockCatalogs.splice(0).map(
+      (server) =>
+        new Promise<void>((resolve, reject) => {
+          server.close((error) => (error === undefined ? resolve() : reject(error)));
+        }),
+    ),
   );
 });
 
@@ -205,5 +258,46 @@ describe('HTTP transport', (): void => {
       'release',
       'nightly',
     ]);
+  });
+
+  it('registers only discovered catalog tools and gates mutations', async (): Promise<void> => {
+    const catalogUri = await startMockCatalog();
+    const readOnlyHandle = await start(withCatalog(testConfig(), catalogUri, false));
+    const readOnlyList = await mcpPost(readOnlyHandle.address, {
+      id: 4,
+      jsonrpc: '2.0',
+      method: 'tools/list',
+      params: {},
+    });
+    const readOnlyTools = (readOnlyList['result'] as { tools: { name: string }[] }).tools.map(
+      (tool) => tool.name,
+    );
+    expect(readOnlyTools).toContain('iceberg_catalog_get_config');
+    expect(readOnlyTools).toContain('iceberg_catalog_list_namespaces');
+    expect(readOnlyTools).not.toContain('iceberg_catalog_create_namespace');
+    expect(readOnlyTools).not.toContain('iceberg_catalog_list_tables');
+
+    const mutableHandle = await start(withCatalog(testConfig(), catalogUri, true));
+    const mutableList = await mcpPost(mutableHandle.address, {
+      id: 5,
+      jsonrpc: '2.0',
+      method: 'tools/list',
+      params: {},
+    });
+    const mutableTools = (mutableList['result'] as { tools: { name: string }[] }).tools.map(
+      (tool) => tool.name,
+    );
+    expect(mutableTools).toContain('iceberg_catalog_create_namespace');
+
+    const configCall = await mcpPost(readOnlyHandle.address, {
+      id: 6,
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'iceberg_catalog_get_config' },
+    });
+    expect(
+      (configCall['result'] as { structuredContent: { operation_id: string } }).structuredContent
+        .operation_id,
+    ).toBe('getConfig');
   });
 });

@@ -46,12 +46,12 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` verified.
 - [x] Project foundation
   - Configure strict TypeScript, linting, formatting, tests, package exports, executable entry
     point, environment validation, and reproducible builds.
-- [~] Providers and protocol infrastructure
+- [x] Providers and protocol infrastructure
   - Implement safe local-source access, remote Javadoc retrieval and caching, HTML/index parsing,
     search, version identity, and source-link resolution.
   - Implement REST URL construction, prefix handling, auth/token exchange, retries, timeouts,
     cancellation, pagination, structured errors, and response validation.
-- [ ] MCP capabilities
+- [~] MCP capabilities
   - Implement complete read and mutation tool families with strict Zod schemas, structured content,
     annotations, concise Markdown/JSON views, and output bounds.
   - Add appropriate MCP resources and prompts without duplicating tool semantics.

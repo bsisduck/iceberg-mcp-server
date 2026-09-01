@@ -24,6 +24,8 @@ const provenanceSchema = z.strictObject({
 const errorSchema = z.strictObject({
   error: z.strictObject({
     correlation_id: z.string().nullable(),
+    iceberg_code: z.number().int().nullable(),
+    iceberg_type: z.string().nullable(),
     message: z.string(),
     retryable: z.boolean(),
     status: z.number().int().nullable(),

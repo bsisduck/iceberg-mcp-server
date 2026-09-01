@@ -59,7 +59,13 @@ describe('loadConfig', (): void => {
     const tokenFile = path.join(cwd, 'token');
     await writeFile(tokenFile, 'catalog-secret\r\n');
 
-    const config = await loadConfig({ ICEBERG_CATALOG_TOKEN_FILE: tokenFile }, cwd);
+    const config = await loadConfig(
+      {
+        ICEBERG_CATALOG_TOKEN_FILE: tokenFile,
+        ICEBERG_CATALOG_URI: 'http://127.0.0.1:8181',
+      },
+      cwd,
+    );
 
     expect(config.catalog.token).toBe('catalog-secret');
   });
