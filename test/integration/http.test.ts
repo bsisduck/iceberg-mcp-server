@@ -568,8 +568,19 @@ describe('HTTP transport', (): void => {
     expect(promptText).toContain('iceberg_api_search');
     expect(promptText).toContain('1.11.0');
 
-    const migrationResponse = await mcpPost(handle.address, {
+    const invalidPromptResponse = await mcpPost(handle.address, {
       id: 10,
+      jsonrpc: '2.0',
+      method: 'prompts/get',
+      params: {
+        arguments: { goal: 'Implement a metadata lookup', version: 'latest' },
+        name: 'iceberg-java-usage',
+      },
+    });
+    expect(invalidPromptResponse['error']).toMatchObject({ code: -32_602 });
+
+    const migrationResponse = await mcpPost(handle.address, {
+      id: 11,
       jsonrpc: '2.0',
       method: 'prompts/get',
       params: {
@@ -580,7 +591,7 @@ describe('HTTP transport', (): void => {
     expect(JSON.stringify(migrationResponse['result'])).toContain('iceberg_api_compare_versions');
 
     const investigationResponse = await mcpPost(handle.address, {
-      id: 11,
+      id: 12,
       jsonrpc: '2.0',
       method: 'prompts/get',
       params: {

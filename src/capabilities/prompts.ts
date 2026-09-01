@@ -1,6 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
+const versionSchema = z
+  .string()
+  .max(100)
+  .regex(/^(?:nightly|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u);
+
 export function registerPrompts(server: McpServer, defaultVersion: string): void {
   server.registerPrompt(
     'iceberg-java-usage',
@@ -8,7 +13,7 @@ export function registerPrompts(server: McpServer, defaultVersion: string): void
       argsSchema: z.strictObject({
         goal: z.string().trim().min(3).max(2_000),
         type: z.string().max(1_000).optional(),
-        version: z.string().default(defaultVersion),
+        version: versionSchema.default(defaultVersion),
       }),
       description:
         'Ground a Java implementation task in exact Iceberg API types, members, stability, and optional source evidence.',
@@ -41,10 +46,10 @@ export function registerPrompts(server: McpServer, defaultVersion: string): void
     'iceberg-api-migration',
     {
       argsSchema: z.strictObject({
-        from_version: z.string().min(1).max(100),
+        from_version: versionSchema,
         goal: z.string().trim().min(3).max(2_000),
         package_name: z.string().max(500).optional(),
-        to_version: z.string().min(1).max(100),
+        to_version: versionSchema,
       }),
       description:
         'Compare exact published API identities before planning an Iceberg Java version migration.',
