@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -96,5 +96,32 @@ describe('SourceProvider', (): void => {
 
     expect(index.files).toHaveLength(2);
     expect(index.byFullyQualifiedName.has('escaped.Escaped')).toBe(false);
+  });
+
+  it('rejects a source file replaced by an escaping symlink after indexing', async (): Promise<void> => {
+    const root = await createCheckout();
+    const provider = await SourceProvider.create(root);
+    await provider.loadIndex();
+    const outside = await mkdtemp(path.join(tmpdir(), 'iceberg-source-outside-'));
+    temporaryDirectories.push(outside);
+    const escaped = path.join(outside, 'Escaped.java');
+    await writeFile(escaped, 'package escaped; public class Escaped {}');
+    const table = path.join(
+      root,
+      'api',
+      'src',
+      'main',
+      'java',
+      'org',
+      'apache',
+      'iceberg',
+      'Table.java',
+    );
+    await unlink(table);
+    await symlink(escaped, table);
+
+    await expect(provider.getType('org.apache.iceberg.Table')).rejects.toThrow(
+      /escaped the configured checkout/u,
+    );
   });
 });

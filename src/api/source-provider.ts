@@ -186,8 +186,12 @@ async function* javaFiles(root: string): AsyncGenerator<string> {
   }
 }
 
-async function readJavaFile(filename: string): Promise<string> {
-  const handle = await open(filename, 'r');
+async function readJavaFile(root: string, filename: string): Promise<string> {
+  const canonical = await realpath(filename);
+  if (!isWithinRoot(root, canonical)) {
+    throw new LimitError('Source file escaped the configured checkout');
+  }
+  const handle = await open(canonical, 'r');
   try {
     const metadata = await handle.stat();
     if (metadata.size > JAVA_FILE_MAX_BYTES) {
@@ -227,7 +231,7 @@ export class SourceProvider {
   ): Promise<SourceWindow> {
     const index = await this.loadIndex();
     const record = this.#resolveRecord(index, fullyQualifiedName);
-    const source = await readJavaFile(path.join(this.#root, record.relativePath));
+    const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
     const allLines = source.split(/\r?\n/u);
     const boundedStart = Math.max(1, Math.min(startLine, Math.max(1, allLines.length)));
     const boundedCount = Math.max(1, Math.min(lineCount, 500));
@@ -251,7 +255,7 @@ export class SourceProvider {
     const index = await this.loadIndex();
     const matches: SourceMatch[] = [];
     for (const record of index.files) {
-      const source = await readJavaFile(path.join(this.#root, record.relativePath));
+      const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
       const lines = source.split(/\r?\n/u);
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         const line = lines[lineIndex] ?? '';
@@ -289,7 +293,7 @@ export class SourceProvider {
     );
     const matches: SourceMatch[] = [];
     for (const record of index.files) {
-      const source = await readJavaFile(path.join(this.#root, record.relativePath));
+      const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
       const originalLines = source.split(/\r?\n/u);
       const lines = stripCommentsAndStrings(source).split(/\r?\n/u);
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -321,7 +325,7 @@ export class SourceProvider {
       if (fileCount > JAVA_FILE_LIMIT) {
         throw new LimitError(`Source checkout contains more than ${JAVA_FILE_LIMIT} Java files`);
       }
-      const source = await readJavaFile(filename);
+      const source = await readJavaFile(this.#root, filename);
       const stripped = stripCommentsAndStrings(source);
       const packageName = packagePattern.exec(stripped)?.[1];
       if (packageName === undefined) {
