@@ -7,6 +7,7 @@ import type { AppConfig } from '../../src/config.js';
 import type { Services } from '../../src/services.js';
 import { createServices } from '../../src/services.js';
 import type { ErrorReporter } from '../../src/shared/logging.js';
+import { SERVER_INSTRUCTIONS } from '../../src/server.js';
 import { startStdio } from '../../src/transport/stdio.js';
 
 interface Fixture {
@@ -120,9 +121,13 @@ describe('stdio transport', (): void => {
       },
     });
 
-    expect((initialized['result'] as { serverInfo: { name: string } }).serverInfo.name).toBe(
-      'iceberg-mcp-server',
-    );
+    const initializeResult = initialized['result'] as {
+      instructions?: string;
+      serverInfo: { name: string };
+    };
+    expect(initializeResult.serverInfo.name).toBe('iceberg-mcp-server');
+    expect(initializeResult.instructions).toBe(SERVER_INSTRUCTIONS);
+    expect(SERVER_INSTRUCTIONS.length).toBeLessThanOrEqual(512);
     const tools = await exchange(connection, {
       id: 2,
       jsonrpc: '2.0',

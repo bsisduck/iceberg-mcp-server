@@ -38,6 +38,7 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "verify:evaluations": "npm run build && node evaluations/verify.mjs",
+    "verify:clients": "npm run build && node scripts/verify-client-configs.mjs",
     "verify:openapi": "npm run build && node scripts/check-openapi-coverage.mjs ../iceberg/open-api/rest-catalog-open-api.yaml"
   },
   "engines": {

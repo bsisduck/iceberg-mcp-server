@@ -10,6 +10,8 @@ import { registerResources } from './capabilities/resources.js';
 
 export const SERVER_NAME = 'iceberg-mcp-server';
 export const SERVER_VERSION = '0.1.0';
+export const SERVER_INSTRUCTIONS =
+  'Start read-only. For Java API questions, search or browse first, then inspect exact types and members; use source only as lexical evidence and compare explicit versions for migrations. For catalogs, inspect iceberg_catalog_get_config first and use only advertised tools. Never expose credentials. Mutations require operator opt-in, catalog support, and user confirmation. Preserve opaque cursors unchanged, paginate bounded results, and never retry 409 conflicts.';
 
 export interface ServerDependencies {
   readonly config: AppConfig;
@@ -25,8 +27,7 @@ export function createIcebergServer(dependencies: ServerDependencies): McpServer
     },
     {
       capabilities: {},
-      instructions:
-        'Use Iceberg API tools for Java documentation and source evidence. Catalog tools are available only when configured.',
+      instructions: SERVER_INSTRUCTIONS,
     },
   );
   registerApiTools(server, {

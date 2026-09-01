@@ -41,15 +41,44 @@ describe('parseArgs', (): void => {
   });
 
   it('uses start with no transport override by default', (): void => {
-    expect(parseArgs([])).toEqual({ command: 'start', transport: undefined });
+    expect(parseArgs([])).toEqual({
+      client: undefined,
+      command: 'start',
+      javadocVersion: '1.11.0',
+      serverPath: undefined,
+      sourceDir: undefined,
+      transport: undefined,
+    });
   });
 
   it('parses help, version, and transport options', (): void => {
-    expect(parseArgs(['--help'])).toEqual({ command: 'help', transport: undefined });
-    expect(parseArgs(['-v'])).toEqual({ command: 'version', transport: undefined });
-    expect(parseArgs(['--transport', 'http'])).toEqual({
+    expect(parseArgs(['--help']).command).toBe('help');
+    expect(parseArgs(['-v']).command).toBe('version');
+    expect(parseArgs(['--transport', 'http'])).toMatchObject({
       command: 'start',
       transport: 'http',
+    });
+  });
+
+  it('parses non-mutating client configuration output options', (): void => {
+    expect(
+      parseArgs([
+        '--print-client-config',
+        'codex',
+        '--server-path',
+        '/opt/iceberg-mcp-server/dist/cli.js',
+        '--source-dir',
+        '/opt/iceberg',
+        '--javadoc-version',
+        '1.10.1',
+      ]),
+    ).toEqual({
+      client: 'codex',
+      command: 'client-config',
+      javadocVersion: '1.10.1',
+      serverPath: '/opt/iceberg-mcp-server/dist/cli.js',
+      sourceDir: '/opt/iceberg',
+      transport: undefined,
     });
   });
 
@@ -57,6 +86,16 @@ describe('parseArgs', (): void => {
     expect(() => parseArgs(['--unknown'])).toThrow(/Unknown argument/u);
     expect(() => parseArgs(['--transport'])).toThrow(/must be stdio or http/u);
     expect(() => parseArgs(['--transport', 'tcp'])).toThrow(/must be stdio or http/u);
+    expect(() => parseArgs(['--print-client-config', 'unknown'])).toThrow(/must be one of/u);
+    expect(() => parseArgs(['--source-dir', '/opt/iceberg'])).toThrow(
+      /require --print-client-config/u,
+    );
+    expect(() => parseArgs(['--print-client-config', 'codex', '--source-dir', 'relative'])).toThrow(
+      /absolute path/u,
+    );
+    expect(() => parseArgs(['--print-client-config', 'codex', '--transport', 'stdio'])).toThrow(
+      /cannot be combined/u,
+    );
   });
 
   it('prints help and version without starting a runtime', async (): Promise<void> => {
@@ -68,6 +107,29 @@ describe('parseArgs', (): void => {
     expect(write).toHaveBeenNthCalledWith(1, USAGE);
     expect(write).toHaveBeenNthCalledWith(2, '0.1.0\n');
     expect(mocks.loadConfig).not.toHaveBeenCalled();
+  });
+
+  it('prints client setup without loading runtime configuration', async (): Promise<void> => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'iceberg-client-setup-test-'));
+    const entry = path.join(directory, 'cli.js');
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await writeFile(entry, '');
+      await main([
+        '--print-client-config',
+        'codex',
+        '--server-path',
+        entry,
+        '--source-dir',
+        '/opt/iceberg',
+      ]);
+
+      expect(write).toHaveBeenCalledWith(expect.stringContaining('codex mcp add iceberg'));
+      expect(write).toHaveBeenCalledWith(expect.stringContaining(entry));
+      expect(mocks.loadConfig).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { recursive: true });
+    }
   });
 
   it('loads an overridden transport, starts, and reports an HTTP address', async (): Promise<void> => {
