@@ -287,6 +287,7 @@ directly in the process environment. Supplying both direct and file forms is an 
 
 - Node.js >=20, matching MCP SDK v2 support.
 - `@modelcontextprotocol/server` and `@modelcontextprotocol/node` v2 for MCP and Node HTTP bindings.
+  `hono` is not a direct dependency; it arrives only through `@modelcontextprotocol/node`.
 - Zod v4 for runtime schemas and MCP JSON Schema generation.
 - Cheerio for bounded Javadoc HTML parsing.
 - Node's built-in `fetch`, URL, crypto, filesystem, and testable abort primitives.

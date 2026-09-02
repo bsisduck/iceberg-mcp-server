@@ -61,7 +61,6 @@
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "cheerio": "1.2.0",
-    "hono": "4.13.5",
     "zod": "4.5.4"
   },
   "devDependencies": {

@@ -22,3 +22,8 @@ The project is licensed under the MIT License.
   prompts. Every entry point enforces the same 100-character bound.
 - `--javadoc-version` now counts as a client setup option whenever it is supplied, even with the
   default value, so it is rejected without `--print-client-config` like the other setup options.
+
+### Removed
+
+- The unused direct `hono` dependency. Nothing in `src/` imports it; it remains available only as a
+  transitive dependency of `@modelcontextprotocol/node`.
