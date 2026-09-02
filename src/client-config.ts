@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { isIcebergVersion } from './shared/iceberg-version.js';
+
 export const CLIENT_IDS = [
   'codex',
   'claude-code',
@@ -19,8 +21,6 @@ export interface ClientSetupOptions {
   readonly sourceDir?: string;
 }
 
-const VERSION_PATTERN = /^(?:nightly|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u;
-
 export function isClientId(value: string): value is ClientId {
   return (CLIENT_IDS as readonly string[]).includes(value);
 }
@@ -32,7 +32,7 @@ function validateOptions(options: ClientSetupOptions): void {
   if (options.sourceDir !== undefined && !path.isAbsolute(options.sourceDir)) {
     throw new Error('sourceDir must be absolute');
   }
-  if (!VERSION_PATTERN.test(options.javadocVersion)) {
+  if (!isIcebergVersion(options.javadocVersion)) {
     throw new Error('javadocVersion must be a release semver or nightly');
   }
 }

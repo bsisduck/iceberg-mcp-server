@@ -2,13 +2,13 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
 import type { ApiService } from '../api/api-service.js';
+import { DEFAULT_JAVADOC_VERSION, icebergVersionSchema } from '../shared/iceberg-version.js';
 import type { ErrorReporter } from '../shared/logging.js';
 import { executeTool } from '../shared/responses.js';
 
-const versionSchema = z
-  .string()
-  .regex(/^(?:nightly|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u)
-  .describe('Published Iceberg release such as 1.11.0, or nightly.');
+const versionSchema = icebergVersionSchema.describe(
+  `Published Iceberg release such as ${DEFAULT_JAVADOC_VERSION}, or nightly.`,
+);
 const cursorSchema = z
   .string()
   .max(2_048)

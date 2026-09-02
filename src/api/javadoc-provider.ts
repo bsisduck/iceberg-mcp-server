@@ -4,6 +4,8 @@ import type { JavadocConfig } from '../config.js';
 import { AsyncTtlCache } from '../shared/cache.js';
 import { BoundedFetcher } from '../shared/fetch.js';
 import { InputError, NotFoundError } from '../shared/errors.js';
+import { isIcebergVersion } from '../shared/iceberg-version.js';
+import { USER_AGENT } from '../version.js';
 import {
   parseMemberIndex,
   parsePackageIndex,
@@ -13,7 +15,6 @@ import {
 import type { JavadocIndex, TypeDocumentation, TypeRecord } from './types.js';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
-const VERSION_PATTERN = /^(?:nightly|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u;
 
 export interface JavadocProviderOptions {
   readonly config: JavadocConfig;
@@ -64,7 +65,7 @@ export class JavadocProvider {
       concurrency: 4,
       fetch: options.fetch,
       timeoutMs: options.requestTimeoutMs,
-      userAgent: 'iceberg-mcp-server/0.1.0',
+      userAgent: USER_AGENT,
     });
   }
 
@@ -139,7 +140,7 @@ export class JavadocProvider {
   }
 
   #assertVersion(version: string): void {
-    if (!VERSION_PATTERN.test(version)) {
+    if (!isIcebergVersion(version)) {
       throw new InputError('Iceberg version must be a release number or nightly');
     }
   }

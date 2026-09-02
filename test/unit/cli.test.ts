@@ -18,6 +18,8 @@ vi.mock('../../src/runtime.js', () => ({
 }));
 
 import { isMainModule, main, parseArgs, USAGE } from '../../src/cli.js';
+import { DEFAULT_JAVADOC_VERSION } from '../../src/shared/iceberg-version.js';
+import { SERVER_VERSION } from '../../src/version.js';
 
 afterEach((): void => {
   vi.clearAllMocks();
@@ -44,7 +46,7 @@ describe('parseArgs', (): void => {
     expect(parseArgs([])).toEqual({
       client: undefined,
       command: 'start',
-      javadocVersion: '1.11.0',
+      javadocVersion: DEFAULT_JAVADOC_VERSION,
       serverPath: undefined,
       sourceDir: undefined,
       transport: undefined,
@@ -90,6 +92,12 @@ describe('parseArgs', (): void => {
     expect(() => parseArgs(['--source-dir', '/opt/iceberg'])).toThrow(
       /require --print-client-config/u,
     );
+    expect(() => parseArgs(['--javadoc-version', DEFAULT_JAVADOC_VERSION])).toThrow(
+      /require --print-client-config/u,
+    );
+    expect(() =>
+      parseArgs(['--print-client-config', 'codex', '--javadoc-version', 'latest']),
+    ).toThrow(/release semver or nightly/u);
     expect(() => parseArgs(['--print-client-config', 'codex', '--source-dir', 'relative'])).toThrow(
       /absolute path/u,
     );
@@ -105,7 +113,9 @@ describe('parseArgs', (): void => {
     await main(['--version']);
 
     expect(write).toHaveBeenNthCalledWith(1, USAGE);
-    expect(write).toHaveBeenNthCalledWith(2, '0.1.0\n');
+    expect(write).toHaveBeenNthCalledWith(2, `${SERVER_VERSION}\n`);
+    expect(USAGE).toContain(`Apache Iceberg MCP Server ${SERVER_VERSION}`);
+    expect(USAGE).toContain(`(default: ${DEFAULT_JAVADOC_VERSION})`);
     expect(mocks.loadConfig).not.toHaveBeenCalled();
   });
 

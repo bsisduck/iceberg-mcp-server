@@ -7,6 +7,7 @@ import type { CatalogConfig, LimitsConfig } from '../config.js';
 import { CapabilityError, LimitError, UpstreamError } from '../shared/errors.js';
 import { decodeTokenCursor, encodeTokenCursor } from '../shared/pagination.js';
 import { redactSecrets } from '../shared/redaction.js';
+import { USER_AGENT } from '../version.js';
 import type { CatalogAuthProvider } from './auth.js';
 import { createCatalogAuthProvider } from './auth.js';
 import { DEFAULT_CATALOG_ENDPOINTS, DEFAULT_VIEW_ENDPOINTS, operationById } from './operations.js';
@@ -237,7 +238,7 @@ export class CatalogClient {
         headers: {
           accept: 'application/json',
           ...(authorization === undefined ? {} : { authorization }),
-          'user-agent': 'iceberg-mcp-server/0.1.0',
+          'user-agent': USER_AGENT,
           'x-request-id': randomUUID(),
         },
         method: 'GET',
@@ -397,7 +398,7 @@ export class CatalogClient {
           ...(authorization === undefined ? {} : { authorization }),
           ...(body === undefined ? {} : { 'content-type': 'application/json' }),
           ...(idempotencyKey === undefined ? {} : { 'idempotency-key': idempotencyKey }),
-          'user-agent': 'iceberg-mcp-server/0.1.0',
+          'user-agent': USER_AGENT,
           'x-request-id': randomUUID(),
         },
         method: operation.method,

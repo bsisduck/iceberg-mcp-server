@@ -1,10 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
-const versionSchema = z
-  .string()
-  .max(100)
-  .regex(/^(?:nightly|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u);
+import { icebergVersionSchema as versionSchema } from '../shared/iceberg-version.js';
 
 export function registerPrompts(server: McpServer, defaultVersion: string): void {
   server.registerPrompt(

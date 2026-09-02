@@ -5,14 +5,13 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { ConfigurationError } from './shared/errors.js';
+import { DEFAULT_JAVADOC_VERSION, icebergVersionSchema } from './shared/iceberg-version.js';
+
+export { DEFAULT_JAVADOC_VERSION } from './shared/iceberg-version.js';
 
 const DEFAULT_JAVADOC_BASE_URL = 'https://iceberg.apache.org/javadoc/';
 const MAX_SECRET_BYTES = 16_384;
 
-const versionSchema = z.union([
-  z.literal('nightly'),
-  z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, 'must be a release or nightly'),
-]);
 const transportSchema = z.enum(['stdio', 'http']);
 
 export interface JavadocConfig {
@@ -246,7 +245,9 @@ export async function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd(),
 ): Promise<AppConfig> {
-  const versionResult = versionSchema.safeParse(env['ICEBERG_JAVADOC_VERSION'] ?? '1.11.0');
+  const versionResult = icebergVersionSchema.safeParse(
+    env['ICEBERG_JAVADOC_VERSION'] ?? DEFAULT_JAVADOC_VERSION,
+  );
   if (!versionResult.success) {
     throw new ConfigurationError('ICEBERG_JAVADOC_VERSION must be a release or nightly');
   }

@@ -68,6 +68,7 @@ src/
   client-config.ts           non-mutating MCP client setup rendering
   config.ts                  strict environment/runtime configuration
   server.ts                  MCP factory and capability registration
+  version.ts                 package name, version, and User-Agent read from package.json
   transport/
     http.ts                  current stateless HTTP serving entry
     stdio.ts                 negotiated stdio serving entry
@@ -90,6 +91,7 @@ src/
     prompts.ts
   shared/
     errors.ts
+    iceberg-version.ts       shared Iceberg version pattern, schema, and default
     pagination.ts
     responses.ts
     redaction.ts

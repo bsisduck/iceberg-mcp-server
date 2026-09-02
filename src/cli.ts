@@ -7,9 +7,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CLIENT_IDS, isClientId, renderClientSetup } from './client-config.js';
 import { loadConfig } from './config.js';
 import { installShutdownHandlers, startRuntime } from './runtime.js';
-import { SERVER_VERSION } from './server.js';
 import { errorMessage } from './shared/errors.js';
+import { DEFAULT_JAVADOC_VERSION, isIcebergVersion } from './shared/iceberg-version.js';
 import { stderrReporter } from './shared/logging.js';
+import { SERVER_VERSION } from './version.js';
 
 export const USAGE = `Apache Iceberg MCP Server ${SERVER_VERSION}
 
@@ -21,7 +22,7 @@ Options:
   --print-client-config <client> Print a non-mutating local setup command or JSON
   --server-path <absolute-path>  Server entry path used in generated client setup
   --source-dir <absolute-path>   Optional Iceberg checkout in generated client setup
-  --javadoc-version <version>    Generated setup version (default: 1.11.0)
+  --javadoc-version <version>    Generated setup version (default: ${DEFAULT_JAVADOC_VERSION})
   --help                         Show this help
   --version                      Show the server version
 
@@ -51,7 +52,8 @@ export function isMainModule(entryPath: string | undefined, moduleUrl: string): 
 export function parseArgs(args: readonly string[]): CliOptions {
   let command: CliOptions['command'] = 'start';
   let client: CliOptions['client'];
-  let javadocVersion = '1.11.0';
+  let javadocVersion = DEFAULT_JAVADOC_VERSION;
+  let javadocVersionProvided = false;
   let serverPath: string | undefined;
   let sourceDir: string | undefined;
   let transport: CliOptions['transport'];
@@ -85,10 +87,11 @@ export function parseArgs(args: readonly string[]): CliOptions {
       index += 1;
     } else if (argument === '--javadoc-version') {
       const value = args[index + 1];
-      if (value === undefined || !/^(?:nightly|\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/u.test(value)) {
+      if (value === undefined || !isIcebergVersion(value)) {
         throw new Error('--javadoc-version must be a release semver or nightly');
       }
       javadocVersion = value;
+      javadocVersionProvided = true;
       index += 1;
     } else if (argument === '--transport') {
       const value = args[index + 1];
@@ -102,7 +105,7 @@ export function parseArgs(args: readonly string[]): CliOptions {
     }
   }
   const hasSetupOption =
-    serverPath !== undefined || sourceDir !== undefined || javadocVersion !== '1.11.0';
+    serverPath !== undefined || sourceDir !== undefined || javadocVersionProvided;
   if (command !== 'client-config' && hasSetupOption) {
     throw new Error('Client setup options require --print-client-config');
   }
