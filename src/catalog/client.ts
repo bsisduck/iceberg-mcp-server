@@ -5,8 +5,10 @@ import { z } from 'zod';
 
 import type { CatalogConfig, LimitsConfig } from '../config.js';
 import { CapabilityError, LimitError, UpstreamError } from '../shared/errors.js';
+import { cancelBody, readBoundedText } from '../shared/fetch.js';
 import { decodeTokenCursor, encodeTokenCursor } from '../shared/pagination.js';
 import { redactSecrets } from '../shared/redaction.js';
+import { Semaphore } from '../shared/semaphore.js';
 import { USER_AGENT } from '../version.js';
 import type { CatalogAuthProvider } from './auth.js';
 import { createCatalogAuthProvider } from './auth.js';
@@ -29,33 +31,6 @@ const errorResponseSchema = z.looseObject({
   }),
 });
 const MAX_CATALOG_REQUEST_BYTES = 1_048_576;
-
-class Semaphore {
-  readonly #waiting: (() => void)[] = [];
-  #available: number;
-
-  public constructor(count: number) {
-    this.#available = count;
-  }
-
-  public async use<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.#available === 0) {
-      await new Promise<void>((resolve) => this.#waiting.push(resolve));
-    } else {
-      this.#available -= 1;
-    }
-    try {
-      return await operation();
-    } finally {
-      const next = this.#waiting.shift();
-      if (next === undefined) {
-        this.#available += 1;
-      } else {
-        next();
-      }
-    }
-  }
-}
 
 function normalizedBaseUri(uri: URL): URL {
   const base = new URL(uri);
@@ -96,32 +71,6 @@ export function uuidV7(now = Date.now()): string {
   bytes[8] = 0x80 | (byteEight & 0x3f);
   const hex = bytes.toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-async function readResponseText(response: Response, maxBytes: number): Promise<string> {
-  if (response.body === null) {
-    return '';
-  }
-  const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  let result = await reader.read();
-  while (!result.done) {
-    length += result.value.byteLength;
-    if (length > maxBytes) {
-      await reader.cancel();
-      throw new LimitError(`Catalog response exceeds ${maxBytes} bytes`);
-    }
-    chunks.push(result.value);
-    result = await reader.read();
-  }
-  const output = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder('utf-8', { fatal: true }).decode(output);
 }
 
 function parseJson(text: string, label: string): unknown {
@@ -245,9 +194,10 @@ export class CatalogClient {
         redirect: 'error',
         signal: controller.signal,
       });
-      const text = await readResponseText(
+      const text = await readBoundedText(
         response,
         Math.min(options.limits.maxResponseChars * 4, 1_000_000),
+        'Catalog response',
       );
       if (!response.ok) {
         throw CatalogClient.responseError(response, text);
@@ -372,7 +322,7 @@ export class CatalogClient {
         return result;
       }
       throw new UpstreamError('Catalog retry limit exceeded', 502, false);
-    });
+    }, signal);
   }
 
   async #attempt(
@@ -406,11 +356,8 @@ export class CatalogClient {
         signal: combined,
       });
       if ((response.status === 429 || response.status >= 500) && canRetry) {
-        const wait = retryAfter(response, attempt);
-        if (response.body !== null) {
-          void response.body.cancel().catch(() => undefined);
-        }
-        return wait;
+        cancelBody(response);
+        return retryAfter(response, attempt);
       }
       return await this.#result(operation, response, cursorIdentity);
     } catch (error) {
@@ -439,7 +386,11 @@ export class CatalogClient {
         status: response.status,
       };
     }
-    const text = await readResponseText(response, this.#limits.maxResponseChars * 4);
+    const text = await readBoundedText(
+      response,
+      this.#limits.maxResponseChars * 4,
+      'Catalog response',
+    );
     if (!response.ok) {
       throw CatalogClient.responseError(response, text);
     }

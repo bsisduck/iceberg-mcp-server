@@ -95,7 +95,8 @@ src/
     pagination.ts
     responses.ts
     redaction.ts
-    fetch.ts                 bounded same-root HTTP retrieval
+    fetch.ts                 bounded same-root HTTP retrieval and bounded body readers
+    semaphore.ts             FIFO, abort-aware concurrency permits
 test/
   unit/
   integration/

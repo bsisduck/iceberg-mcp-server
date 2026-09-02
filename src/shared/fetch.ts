@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { LimitError, UpstreamError } from './errors.js';
+import { Semaphore } from './semaphore.js';
 
 export interface BoundedFetchOptions {
   readonly acceptedContentTypes: readonly string[];
@@ -24,32 +25,7 @@ export interface BoundedFetcherOptions {
   readonly userAgent: string;
 }
 
-class Semaphore {
-  readonly #waiting: (() => void)[] = [];
-  #available: number;
-
-  public constructor(concurrency: number) {
-    this.#available = concurrency;
-  }
-
-  public async use<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.#available === 0) {
-      await new Promise<void>((resolve) => this.#waiting.push(resolve));
-    } else {
-      this.#available -= 1;
-    }
-    try {
-      return await operation();
-    } finally {
-      const next = this.#waiting.shift();
-      if (next === undefined) {
-        this.#available += 1;
-      } else {
-        next();
-      }
-    }
-  }
-}
+const utf8 = new TextDecoder('utf-8', { fatal: true });
 
 function contentTypeMatches(actual: string, accepted: readonly string[]): boolean {
   const mediaType = actual.split(';', 1)[0]?.trim().toLowerCase() ?? '';
@@ -60,9 +36,64 @@ function retryDelay(attempt: number): number {
   return Math.min(1_000, 100 * 2 ** attempt) + Math.floor(Math.random() * 50);
 }
 
-function cancelBody(response: Response): void {
+export function cancelBody(response: Response): void {
   if (response.body !== null) {
     void response.body.cancel().catch(() => undefined);
+  }
+}
+
+/**
+ * Read a response body while enforcing a byte ceiling. A declared `Content-Length` above the limit
+ * is rejected before any byte is consumed; a streamed body is cancelled as soon as it crosses the
+ * limit. Overflow always surfaces as a `LimitError` whose message starts with `label`.
+ */
+export async function readBounded(
+  response: Response,
+  maxBytes: number,
+  label = 'Upstream response',
+): Promise<Uint8Array> {
+  const overflow = (): LimitError => new LimitError(`${label} exceeds ${maxBytes} bytes`);
+  const declaredLength = response.headers.get('content-length');
+  if (declaredLength !== null && Number(declaredLength) > maxBytes) {
+    cancelBody(response);
+    throw overflow();
+  }
+  if (response.body === null) {
+    return new Uint8Array();
+  }
+  const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  let result = await reader.read();
+  while (!result.done) {
+    length += result.value.byteLength;
+    if (length > maxBytes) {
+      await reader.cancel();
+      throw overflow();
+    }
+    chunks.push(result.value);
+    result = await reader.read();
+  }
+  const output = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+/** `readBounded` followed by strict UTF-8 decoding; malformed bytes become an `UpstreamError`. */
+export async function readBoundedText(
+  response: Response,
+  maxBytes: number,
+  label = 'Upstream response',
+): Promise<string> {
+  const body = await readBounded(response, maxBytes, label);
+  try {
+    return utf8.decode(body);
+  } catch (error) {
+    throw new UpstreamError(`${label} is not valid UTF-8`, 502, false, { cause: error });
   }
 }
 
@@ -96,7 +127,7 @@ export class BoundedFetcher {
         }
       }
       throw new UpstreamError('Upstream retry limit exceeded', 502, false);
-    });
+    }, options.signal);
   }
 
   async #getOnce(url: URL, options: BoundedFetchOptions): Promise<BoundedFetchResult> {
@@ -149,12 +180,7 @@ export class BoundedFetcher {
             false,
           );
         }
-        const declaredLength = response.headers.get('content-length');
-        if (declaredLength !== null && Number(declaredLength) > options.maxBytes) {
-          cancelBody(response);
-          throw new LimitError(`Upstream response exceeds ${options.maxBytes} bytes`);
-        }
-        const body = await this.#readBody(response, options.maxBytes);
+        const body = await readBounded(response, options.maxBytes);
         return { body, contentType, retrievedAt: new Date(), url: current };
       }
       throw new UpstreamError('Upstream redirect limit exceeded', 502, false);
@@ -166,32 +192,6 @@ export class BoundedFetcher {
     } finally {
       clearTimeout(timeout);
     }
-  }
-
-  async #readBody(response: Response, maxBytes: number): Promise<Uint8Array> {
-    if (response.body === null) {
-      return new Uint8Array();
-    }
-    const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
-    const chunks: Uint8Array[] = [];
-    let length = 0;
-    let result = await reader.read();
-    while (!result.done) {
-      length += result.value.byteLength;
-      if (length > maxBytes) {
-        await reader.cancel();
-        throw new LimitError(`Upstream response exceeds ${maxBytes} bytes`);
-      }
-      chunks.push(result.value);
-      result = await reader.read();
-    }
-    const output = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) {
-      output.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return output;
   }
 
   #assertAllowed(url: URL): void {

@@ -22,6 +22,15 @@ The project is licensed under the MIT License.
   prompts. Every entry point enforces the same 100-character bound.
 - `--javadoc-version` now counts as a client setup option whenever it is supplied, even with the
   default value, so it is rejected without `--print-client-config` like the other setup options.
+- One shared `Semaphore` (`src/shared/semaphore.ts`) replaces the two identical private copies in
+  the Javadoc fetcher and the catalog client. It is FIFO, releases on throw, and accepts an abort
+  signal: an already-aborted caller is rejected before it queues, and a caller that aborts while
+  waiting is removed from the queue.
+- One exported `readBounded`/`readBoundedText` helper (`src/shared/fetch.ts`) replaces the three
+  bounded body readers in the Javadoc fetcher, catalog client, and OAuth provider. Overflow always
+  raises `LimitError` (`<label> exceeds <n> bytes`); an oversized OAuth token response therefore now
+  reports `LimitError` instead of an `UpstreamError`, and a catalog body that is not valid UTF-8 is
+  a non-retryable `UpstreamError` instead of a retryable generic failure.
 
 ### Removed
 

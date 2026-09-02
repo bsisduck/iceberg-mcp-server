@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AsyncTtlCache } from '../../src/shared/cache.js';
-import { BoundedFetcher } from '../../src/shared/fetch.js';
-import { InputError, UpstreamError } from '../../src/shared/errors.js';
+import { BoundedFetcher, readBounded, readBoundedText } from '../../src/shared/fetch.js';
+import { InputError, LimitError, UpstreamError } from '../../src/shared/errors.js';
 import { stderrReporter } from '../../src/shared/logging.js';
 import {
   decodeCursor,
@@ -335,6 +335,74 @@ describe('BoundedFetcher', (): void => {
         signal: controller.signal,
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe('bounded body readers', (): void => {
+  function streamed(chunks: readonly string[], cancel = vi.fn(), close = true): Response {
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        cancel,
+        start(controller): void {
+          for (const chunk of chunks) {
+            controller.enqueue(new TextEncoder().encode(chunk));
+          }
+          if (close) {
+            controller.close();
+          }
+        },
+      }),
+    );
+  }
+
+  it('accepts bodies up to the exact limit and rejects one byte more', async (): Promise<void> => {
+    expect(new TextDecoder().decode(await readBounded(streamed(['ab', 'cd']), 4))).toBe('abcd');
+    await expect(readBounded(streamed(['ab', 'cd', 'e']), 4)).rejects.toThrow(LimitError);
+    await expect(readBounded(streamed(['ab', 'cd', 'e']), 4)).rejects.toThrow(
+      /Upstream response exceeds 4 bytes/u,
+    );
+    await expect(readBounded(streamed(['x'.repeat(5)]), 4, 'Catalog response')).rejects.toThrow(
+      /Catalog response exceeds 4 bytes/u,
+    );
+  });
+
+  it('cancels streams that overflow or declare an oversized length', async (): Promise<void> => {
+    const overflowCancel = vi.fn();
+    await expect(readBounded(streamed(['abc', 'def'], overflowCancel, false), 4)).rejects.toThrow(
+      LimitError,
+    );
+    expect(overflowCancel).toHaveBeenCalledOnce();
+
+    const declaredCancel = vi.fn();
+    const declared = new Response(
+      new ReadableStream<Uint8Array>({
+        cancel: declaredCancel,
+        start(controller): void {
+          controller.enqueue(new TextEncoder().encode('ab'));
+        },
+      }),
+      { headers: { 'content-length': '5' } },
+    );
+    await expect(readBounded(declared, 4)).rejects.toThrow(/exceeds 4 bytes/u);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(declaredCancel).toHaveBeenCalledOnce();
+  });
+
+  it('returns empty output for bodiless responses and decodes strict UTF-8', async (): Promise<void> => {
+    expect(await readBounded(new Response(null), 4)).toHaveLength(0);
+    expect(await readBoundedText(new Response(null), 4)).toBe('');
+    expect(await readBoundedText(new Response('héllo'), 6)).toBe('héllo');
+    await expect(
+      readBoundedText(new Response(new Uint8Array([0xff, 0xfe])), 4, 'Catalog response'),
+    ).rejects.toMatchObject({
+      message: 'Catalog response is not valid UTF-8',
+      name: 'UpstreamError',
+      retryable: false,
+      status: 502,
+    });
+    await expect(readBoundedText(new Response('héllo'), 5)).rejects.toThrow(LimitError);
   });
 });
 

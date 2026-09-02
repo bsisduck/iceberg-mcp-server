@@ -1,33 +1,14 @@
 import { z } from 'zod';
 
 import type { CatalogConfig } from '../config.js';
-import { UpstreamError } from '../shared/errors.js';
+import { LimitError, UpstreamError } from '../shared/errors.js';
+import { cancelBody, readBoundedText } from '../shared/fetch.js';
 
 const oauthResponseSchema = z.looseObject({
   access_token: z.string().min(1),
   expires_in: z.number().positive().optional(),
   token_type: z.string().optional(),
 });
-
-async function readLimitedText(response: Response, maxBytes: number): Promise<string> {
-  if (response.body === null) {
-    return '';
-  }
-  const reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  let result = await reader.read();
-  while (!result.done) {
-    length += result.value.byteLength;
-    if (length > maxBytes) {
-      await reader.cancel();
-      throw new UpstreamError('OAuth token response is too large', 502, false);
-    }
-    chunks.push(result.value);
-    result = await reader.read();
-  }
-  return Buffer.concat(chunks, length).toString('utf8');
-}
 
 export interface CatalogAuthProvider {
   authorization(signal?: AbortSignal): Promise<string | undefined>;
@@ -117,16 +98,14 @@ class OAuthAuthProvider implements CatalogAuthProvider {
         signal: combined,
       });
       if (!response.ok) {
-        if (response.body !== null) {
-          void response.body.cancel().catch(() => undefined);
-        }
+        cancelBody(response);
         throw new UpstreamError(
           `OAuth token endpoint returned HTTP ${response.status}`,
           response.status,
           response.status === 429 || response.status >= 500,
         );
       }
-      const text = await readLimitedText(response, 65_536);
+      const text = await readBoundedText(response, 65_536, 'OAuth token response');
       const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim() ?? '';
       if (contentType !== 'application/json' && !contentType.endsWith('+json')) {
         throw new UpstreamError(
@@ -165,7 +144,7 @@ class OAuthAuthProvider implements CatalogAuthProvider {
       if (controller.signal.aborted && !signal?.aborted) {
         throw new UpstreamError('OAuth token request timed out', 504, true, { cause: error });
       }
-      if (!(error instanceof UpstreamError)) {
+      if (!(error instanceof UpstreamError) && !(error instanceof LimitError)) {
         throw new UpstreamError('OAuth token request failed', 502, true, { cause: error });
       }
       throw error;

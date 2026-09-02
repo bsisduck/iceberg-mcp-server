@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createCatalogAuthProvider } from '../../src/catalog/auth.js';
 import type { CatalogConfig } from '../../src/config.js';
+import { LimitError } from '../../src/shared/errors.js';
 
 function config(overrides: Partial<CatalogConfig> = {}): CatalogConfig {
   return {
@@ -103,7 +104,10 @@ describe('catalog authentication', (): void => {
     const provider = createCatalogAuthProvider(oauthConfig(), 1_000, () =>
       Promise.resolve(new Response('x'.repeat(65_537))),
     );
-    await expect(provider.authorization()).rejects.toThrow(/too large/u);
+    await expect(provider.authorization()).rejects.toThrow(LimitError);
+    await expect(provider.authorization()).rejects.toThrow(
+      /OAuth token response exceeds 65536 bytes/u,
+    );
   });
 
   it('normalizes network failures and timeouts without leaking credentials', async (): Promise<void> => {
