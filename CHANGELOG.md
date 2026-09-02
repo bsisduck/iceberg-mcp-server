@@ -32,6 +32,18 @@ The project is licensed under the MIT License.
   reports `LimitError` instead of an `UpstreamError`, and a catalog body that is not valid UTF-8 is
   a non-retryable `UpstreamError` instead of a retryable generic failure.
 
+- Recursive redaction now also matches plural and compound credential names (`credentials`,
+  `secrets`, `api-key`/`apikey`, `account-key`, `shared-key`, `connection-string`, `passphrase`,
+  `passwd`, `signing-key`, `encryption-key`, `decryption-key`, `sse.key`) and camelCase keys such as
+  `accessToken`, covering the Iceberg storage-credential properties (`s3.secret-access-key`,
+  `s3.session-token`, `client.credential`, `azure.account-key`, `adls.sas-token.<account>`,
+  `adls.connection-string.<account>`, `gcs.oauth2.token`). Keys that only describe a credential
+  (`token-refresh-enabled`, `token_type`, `client.credentials-provider`,
+  `gcs.oauth2.token-expires-at`, `*-endpoint`, `*-uri`, `*-name`) stay visible. A
+  `storage-credentials` array in any non-vending response is now redacted as a whole. A new
+  `redactText` helper masks `Bearer`/`Basic` values, URL userinfo, and sensitive `key=value` pairs
+  inside free text.
+
 ### Removed
 
 - The unused direct `hono` dependency. Nothing in `src/` imports it; it remains available only as a

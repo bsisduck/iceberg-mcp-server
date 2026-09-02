@@ -53,8 +53,21 @@ audience and execution boundary even when it connects only to operator-trusted s
   secrets have the same 16 KiB maximum; files must be regular and are read once.
 - The deprecated Iceberg `/v1/oauth/tokens` operation is not exposed or invoked. An explicit
   external OAuth endpoint is required for client credentials.
-- Authorization and OAuth headers/bodies are never copied into results. Catalog properties whose
-  normalized names contain token/secret/credential/password/private-key are redacted recursively.
+- Authorization and OAuth headers/bodies are never copied into results. Catalog properties are
+  redacted recursively when a normalized key segment (split on `-`, `_`, `.`, and camelCase) is
+  `token(s)`, `secret(s)`, `credential(s)`, `password(s)`, `passwd`, `passphrase`, `authorization`,
+  or a compound key (`access-key`, `secret-key`, `private-key`, `api-key`, `account-key`,
+  `shared-key`, `signing-key`, `encryption-key`, `decryption-key`, `sse.key`, `client-secret`,
+  `connection-string`). This covers the Iceberg storage-credential properties such as
+  `s3.secret-access-key`, `s3.session-token`, `client.credential`, `azure.account-key`,
+  `adls.sas-token.<account>`, `adls.connection-string.<account>`, and `gcs.oauth2.token`. Keys that
+  only describe a credential (`-enabled`, `-endpoint`, `-uri`, `-url`, `-provider`, `-type`,
+  `-lifetime`, `-expires-at`, `-name`) remain visible, for example `token-refresh-enabled`,
+  `client.credentials-provider`, and `gcs.oauth2.token-expires-at`; `-id` is not exempt, so
+  `s3.access-key-id` is redacted. Over-redaction of harmless keys that share a credential prefix
+  (such as `adls.sas-token-expires-at-ms.<account>`) is accepted.
+- Free text that reaches stderr (error messages and, at debug level, stacks) passes through a text
+  redactor that masks `Bearer`/`Basic` values, URL userinfo, and sensitive `key=value` pairs.
 - `loadCredentials` has a special sanitizer that returns prefixes and key names, not credential
   configuration values. The remote-signing endpoint is not callable, so signed headers are never
   emitted.
