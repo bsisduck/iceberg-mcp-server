@@ -95,6 +95,7 @@ src/
     pagination.ts
     responses.ts
     redaction.ts
+    secret.ts                credential wrapper that redacts on stringify and inspect
     fetch.ts                 bounded same-root HTTP retrieval and bounded body readers
     semaphore.ts             FIFO, abort-aware concurrency permits
 test/

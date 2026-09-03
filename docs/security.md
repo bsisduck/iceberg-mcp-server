@@ -51,6 +51,13 @@ audience and execution boundary even when it connects only to operator-trusted s
 - `ICEBERG_CATALOG_TOKEN`, `ICEBERG_OAUTH2_CREDENTIAL`, and inbound MCP auth tokens are secrets.
 - `_FILE` variants are preferred for container/orchestrator deployment. Direct and file-based
   secrets have the same 16 KiB maximum; files must be regular and are read once.
+- Every configured secret is held in a `Secret` wrapper (`src/shared/secret.ts`) rather than a bare
+  string. The material lives in a private field, so it is invisible to `Object.keys`, spread, and
+  the default `util.inspect` walk; `toJSON`, `toString`, and the Node inspect hook all yield
+  `[REDACTED]`. `JSON.stringify(config)` and `util.inspect(config, { depth: null })` therefore
+  disclose nothing, and reading a credential requires an explicit `value()` call at the one place
+  that sends or compares it (inbound bearer comparison, catalog `Authorization` header, OAuth form
+  body).
 - The deprecated Iceberg `/v1/oauth/tokens` operation is not exposed or invoked. An explicit
   external OAuth endpoint is required for client credentials.
 - Authorization and OAuth headers/bodies are never copied into results. Catalog properties are

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { inspect } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -67,7 +68,7 @@ describe('loadConfig', (): void => {
       cwd,
     );
 
-    expect(config.catalog.token).toBe('catalog-secret');
+    expect(config.catalog.token?.value()).toBe('catalog-secret');
   });
 
   it('rejects unreadable, empty, non-file, and oversized secret mounts', async (): Promise<void> => {
@@ -217,11 +218,8 @@ describe('loadConfig', (): void => {
       cwd,
     );
 
-    expect(config.catalog).toMatchObject({
-      oauth2Credential: 'client:secret',
-      token: undefined,
-      warehouse: undefined,
-    });
+    expect(config.catalog.oauth2Credential?.value()).toBe('client:secret');
+    expect(config.catalog).toMatchObject({ token: undefined, warehouse: undefined });
   });
 
   it.each([
@@ -243,6 +241,31 @@ describe('loadConfig', (): void => {
   ])('rejects invalid environment input %#', async (env, expected): Promise<void> => {
     const cwd = await temporaryDirectory();
     await expect(loadConfig(env, cwd)).rejects.toThrow(expected);
+  });
+
+  it('keeps every configured secret out of serialization and inspection', async (): Promise<void> => {
+    const cwd = await temporaryDirectory();
+    const config = await loadConfig(
+      {
+        ICEBERG_CATALOG_URI: 'https://catalog.example.test',
+        ICEBERG_MCP_ALLOWED_ORIGINS: 'https://client.example.test',
+        ICEBERG_MCP_AUTH_TOKEN: 'inbound-secret',
+        ICEBERG_MCP_HOST: '0.0.0.0',
+        ICEBERG_MCP_TRANSPORT: 'http',
+        ICEBERG_OAUTH2_CREDENTIAL: 'client-id:client-secret',
+        ICEBERG_OAUTH2_URI: 'https://id.example.test/token',
+      },
+      cwd,
+    );
+    const rendered = [JSON.stringify(config), inspect(config, { depth: null })];
+
+    for (const output of rendered) {
+      expect(output).not.toContain('inbound-secret');
+      expect(output).not.toContain('client-secret');
+      expect(output).toContain('[REDACTED]');
+    }
+    expect(config.http.authToken?.value()).toBe('inbound-secret');
+    expect(config.catalog.oauth2Credential?.value()).toBe('client-id:client-secret');
   });
 
   it('caps the configured origin count', async (): Promise<void> => {

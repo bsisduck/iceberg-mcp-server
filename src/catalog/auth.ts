@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { CatalogConfig } from '../config.js';
 import { LimitError, UpstreamError } from '../shared/errors.js';
 import { cancelBody, readBoundedText } from '../shared/fetch.js';
+import { Secret } from '../shared/secret.js';
 
 const oauthResponseSchema = z.looseObject({
   access_token: z.string().min(1),
@@ -16,14 +17,14 @@ export interface CatalogAuthProvider {
 }
 
 class StaticAuthProvider implements CatalogAuthProvider {
-  #token: string | undefined;
+  #token: Secret | undefined;
 
-  public constructor(token: string | undefined) {
+  public constructor(token: Secret | undefined) {
     this.#token = token;
   }
 
   public authorization(): Promise<string | undefined> {
-    return Promise.resolve(this.#token === undefined ? undefined : `Bearer ${this.#token}`);
+    return Promise.resolve(this.#token === undefined ? undefined : `Bearer ${this.#token.value()}`);
   }
 
   public clear(): void {
@@ -33,7 +34,7 @@ class StaticAuthProvider implements CatalogAuthProvider {
 
 class OAuthAuthProvider implements CatalogAuthProvider {
   readonly #clientId: string;
-  #clientSecret: string | undefined;
+  #clientSecret: Secret | undefined;
   readonly #fetch: typeof globalThis.fetch;
   readonly #timeoutMs: number;
   readonly #uri: URL;
@@ -41,17 +42,18 @@ class OAuthAuthProvider implements CatalogAuthProvider {
   #loading: Promise<string> | undefined;
 
   public constructor(options: {
-    credential: string;
+    credential: Secret;
     fetch?: typeof globalThis.fetch | undefined;
     timeoutMs: number;
     uri: URL;
   }) {
-    const delimiter = options.credential.indexOf(':');
-    if (delimiter < 1 || delimiter === options.credential.length - 1) {
+    const credential = options.credential.value();
+    const delimiter = credential.indexOf(':');
+    if (delimiter < 1 || delimiter === credential.length - 1) {
       throw new UpstreamError('OAuth credential must use client_id:client_secret form', 400, false);
     }
-    this.#clientId = options.credential.slice(0, delimiter);
-    this.#clientSecret = options.credential.slice(delimiter + 1);
+    this.#clientId = credential.slice(0, delimiter);
+    this.#clientSecret = new Secret(credential.slice(delimiter + 1));
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#timeoutMs = options.timeoutMs;
     this.#uri = new URL(options.uri);
@@ -83,7 +85,7 @@ class OAuthAuthProvider implements CatalogAuthProvider {
     try {
       const body = new URLSearchParams({
         client_id: this.#clientId,
-        client_secret: this.#clientSecret,
+        client_secret: this.#clientSecret.value(),
         grant_type: 'client_credentials',
         scope: 'catalog',
       });

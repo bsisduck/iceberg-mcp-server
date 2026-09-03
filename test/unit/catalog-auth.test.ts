@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCatalogAuthProvider } from '../../src/catalog/auth.js';
 import type { CatalogConfig } from '../../src/config.js';
 import { LimitError } from '../../src/shared/errors.js';
+import { Secret } from '../../src/shared/secret.js';
 
 function config(overrides: Partial<CatalogConfig> = {}): CatalogConfig {
   return {
@@ -18,7 +19,7 @@ function config(overrides: Partial<CatalogConfig> = {}): CatalogConfig {
 
 function oauthConfig(credential = 'client:secret'): CatalogConfig {
   return config({
-    oauth2Credential: credential,
+    oauth2Credential: new Secret(credential),
     oauth2Uri: new URL('https://identity.example.test/token'),
   });
 }
@@ -35,7 +36,10 @@ describe('catalog authentication', (): void => {
     const anonymous = createCatalogAuthProvider(config(), 1_000);
     expect(await anonymous.authorization()).toBeUndefined();
 
-    const bearer = createCatalogAuthProvider(config({ token: 'catalog-secret' }), 1_000);
+    const bearer = createCatalogAuthProvider(
+      config({ token: new Secret('catalog-secret') }),
+      1_000,
+    );
     expect(await bearer.authorization()).toBe('Bearer catalog-secret');
     bearer.clear();
     expect(await bearer.authorization()).toBeUndefined();

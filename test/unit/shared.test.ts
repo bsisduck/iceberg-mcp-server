@@ -1,3 +1,5 @@
+import { format, inspect } from 'node:util';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { AsyncTtlCache } from '../../src/shared/cache.js';
@@ -13,6 +15,7 @@ import {
 } from '../../src/shared/pagination.js';
 import { redactSecrets } from '../../src/shared/redaction.js';
 import { executeTool } from '../../src/shared/responses.js';
+import { Secret } from '../../src/shared/secret.js';
 
 describe('AsyncTtlCache', (): void => {
   it('shares promises and evicts least-recently-used entries', async (): Promise<void> => {
@@ -524,5 +527,22 @@ describe('default error logging', (): void => {
     expect(output).toContain('Unexpected internal error');
     expect(output).not.toContain('sensitive-token');
     write.mockRestore();
+  });
+});
+
+describe('Secret', (): void => {
+  it('keeps the credential out of every accidental rendering path', (): void => {
+    const secret = new Secret('catalog-secret');
+
+    expect(secret.value()).toBe('catalog-secret');
+    expect(JSON.stringify({ token: secret })).toBe('{"token":"[REDACTED]"}');
+    // ESLint's restrict-template-expressions already refuses `${secret}` at compile time; these
+    // cover the runtime coercions that reach a log line.
+    expect(String(secret)).toBe('[REDACTED]');
+    expect(format('%s: %o', secret, secret)).toBe('[REDACTED]: [REDACTED]');
+    expect(inspect(secret)).toBe('[REDACTED]');
+    expect(inspect({ nested: { token: secret } }, { depth: null })).not.toContain('catalog-secret');
+    expect(Object.keys(secret)).toEqual([]);
+    expect(JSON.stringify(Object.assign({}, secret))).toBe('{}');
   });
 });

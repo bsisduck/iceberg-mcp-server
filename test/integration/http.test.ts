@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { AppConfig } from '../../src/config.js';
 import type { ErrorReporter } from '../../src/shared/logging.js';
 import type { Services } from '../../src/services.js';
+import { Secret } from '../../src/shared/secret.js';
 import { createServices } from '../../src/services.js';
 import type { HttpServerHandle } from '../../src/transport/http.js';
 import { startHttp } from '../../src/transport/http.js';
@@ -283,7 +284,7 @@ describe('HTTP transport', (): void => {
   });
 
   it('enforces exact origins and inbound bearer authentication', async (): Promise<void> => {
-    const handle = await start(testConfig({ authToken: 'inbound-secret' }));
+    const handle = await start(testConfig({ authToken: new Secret('inbound-secret') }));
     const requestBody = JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'ping' });
 
     const wrongOrigin = await fetch(handle.address, {

@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { ConfigurationError } from './shared/errors.js';
 import { DEFAULT_JAVADOC_VERSION, icebergVersionSchema } from './shared/iceberg-version.js';
+import { Secret } from './shared/secret.js';
 
 export { DEFAULT_JAVADOC_VERSION } from './shared/iceberg-version.js';
 
@@ -21,16 +22,16 @@ export interface JavadocConfig {
 
 export interface CatalogConfig {
   readonly allowMutations: boolean;
-  readonly oauth2Credential: string | undefined;
+  readonly oauth2Credential: Secret | undefined;
   readonly oauth2Uri: URL | undefined;
-  readonly token: string | undefined;
+  readonly token: Secret | undefined;
   readonly uri: URL | undefined;
   readonly warehouse: string | undefined;
 }
 
 export interface HttpConfig {
   readonly allowedOrigins: readonly string[];
-  readonly authToken: string | undefined;
+  readonly authToken: Secret | undefined;
   readonly host: string;
   readonly maxRequestBytes: number;
   readonly port: number;
@@ -143,7 +144,7 @@ async function readSecret(
   env: NodeJS.ProcessEnv,
   directName: string,
   fileName: string,
-): Promise<string | undefined> {
+): Promise<Secret | undefined> {
   const direct = optionalValue(env[directName]);
   const file = optionalValue(env[fileName]);
   if (direct !== undefined && file !== undefined) {
@@ -153,7 +154,7 @@ async function readSecret(
     if (Buffer.byteLength(direct, 'utf8') > MAX_SECRET_BYTES) {
       throw new ConfigurationError(`${directName} must be at most ${MAX_SECRET_BYTES} bytes`);
     }
-    return direct;
+    return new Secret(direct);
   }
   if (file === undefined) {
     return undefined;
@@ -179,7 +180,7 @@ async function readSecret(
   if (secret === '') {
     throw new ConfigurationError(`${fileName} must not be empty`);
   }
-  return secret;
+  return new Secret(secret);
 }
 
 function parseOrigins(value: string | undefined, port: number): readonly string[] {

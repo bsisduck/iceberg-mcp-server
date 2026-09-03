@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CatalogConfig, LimitsConfig } from '../../src/config.js';
+import { Secret } from '../../src/shared/secret.js';
 import { CatalogClient, uuidV7 } from '../../src/catalog/client.js';
 import {
   ALL_CATALOG_OPERATIONS,
@@ -17,7 +18,7 @@ function config(overrides: Partial<CatalogConfig> = {}): CatalogConfig {
     allowMutations: false,
     oauth2Credential: undefined,
     oauth2Uri: undefined,
-    token: 'catalog-secret',
+    token: new Secret('catalog-secret'),
     uri: new URL('https://catalog.example.test/base/'),
     warehouse: 'analytics',
     ...overrides,

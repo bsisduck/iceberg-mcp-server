@@ -44,6 +44,14 @@ The project is licensed under the MIT License.
   `redactText` helper masks `Bearer`/`Basic` values, URL userinfo, and sensitive `key=value` pairs
   inside free text.
 
+- Configured credentials (inbound MCP auth token, catalog bearer token, OAuth credential) are now
+  stored in a `Secret` wrapper (`src/shared/secret.ts`) instead of bare strings. `toJSON`,
+  `toString`, and the Node inspect hook return `[REDACTED]`, and the material is held in a private
+  field, so `JSON.stringify(config)`, `util.inspect(config, { depth: null })`, and a stray
+  `console.log` no longer disclose it. `AppConfig.http.authToken`, `AppConfig.catalog.token`, and
+  `AppConfig.catalog.oauth2Credential` changed type from `string | undefined` to
+  `Secret | undefined`; embedders read them with `value()`.
+
 ### Removed
 
 - The unused direct `hono` dependency. Nothing in `src/` imports it; it remains available only as a

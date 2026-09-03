@@ -155,7 +155,7 @@ export async function startHttp(
       }
       if (
         config.authToken !== undefined &&
-        !bearerMatches(request.headers.authorization, config.authToken)
+        !bearerMatches(request.headers.authorization, config.authToken.value())
       ) {
         response.setHeader('www-authenticate', 'Bearer');
         sendJsonRpcError(response, 401, -32_000, 'Authentication required');
