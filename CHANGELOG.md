@@ -59,6 +59,9 @@ The project is licensed under the MIT License.
   The discovered `prefix` is encoded per path segment, so a multi-segment prefix such as `ws/foo`
   routes to `/v1/ws/foo/...` as it does in the reference clients instead of collapsing into one
   `ws%2Ffoo` segment; empty segments from a leading, trailing, or doubled `/` are dropped (F28).
+  Discovery now refuses a prefix whose segments include `.` or `..`: per-segment encoding leaves a
+  dot segment intact, so such a prefix would resolve the request outside the configured base path —
+  in the worst case to the host root — with the outbound credential attached.
 
 - The catalog client now retries retryable transport failures — network errors and per-attempt
   timeouts — for `GET`/`HEAD` and for idempotency-keyed mutations, using the same attempt budget and

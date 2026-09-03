@@ -167,16 +167,22 @@ function isSuccess(status: number): boolean {
 }
 
 /**
+ * The discovered prefix as path segments, dropping the empty ones a leading, trailing, or doubled
+ * separator produces so the path stays well formed.
+ */
+function prefixSegments(prefix: string): string[] {
+  return prefix.split('/').filter((segment) => segment !== '');
+}
+
+/**
  * Renders the discovered prefix as path segments. The reference clients encode each segment
  * separately, so a multi-segment prefix such as `ws/foo` routes to `/v1/ws/foo/...` rather than to
- * a single `ws%2Ffoo` segment, while a segment that needs escaping is still escaped. Empty segments
- * from a leading, trailing, or doubled separator are dropped so the path stays well formed.
+ * a single `ws%2Ffoo` segment, while a segment that needs escaping is still escaped. No segment is
+ * `.` or `..` here: discovery refuses such a prefix, because encoding leaves a dot segment intact
+ * and the resolved URL would climb out of the configured base path.
  */
 function encodedPrefix(prefix: string): string {
-  const segments = prefix
-    .split('/')
-    .filter((segment) => segment !== '')
-    .map((segment) => encodeURIComponent(segment));
+  const segments = prefixSegments(prefix).map((segment) => encodeURIComponent(segment));
   return segments.length === 0 ? '' : `/${segments.join('/')}`;
 }
 
@@ -357,6 +363,17 @@ export class CatalogClient {
               ...(merged['view-endpoints-supported'] === 'true' ? DEFAULT_VIEW_ENDPOINTS : []),
             ])
           : new Set(advertisedEndpoints);
+      const prefix = configValue(merged, 'prefix') ?? '';
+      // `encodeURIComponent('..')` is `'..'`, so a dot segment survives encoding and walks the
+      // request out of the operator's base path — past `/v1`, and in the worst case to the host
+      // root — with the outbound credential attached. Refuse the catalog rather than route there.
+      if (prefixSegments(prefix).some((segment) => segment === '.' || segment === '..')) {
+        throw new UpstreamError(
+          'Catalog config advertised a prefix that escapes the configured base path',
+          502,
+          false,
+        );
+      }
       return {
         defaults: parsed.data.defaults,
         endpoints,
@@ -364,7 +381,7 @@ export class CatalogClient {
         merged,
         namespaceSeparator: decodeNamespaceSeparator(merged['namespace-separator']),
         overrides: parsed.data.overrides,
-        prefix: configValue(merged, 'prefix') ?? '',
+        prefix,
         retrievedAt: new Date(),
       };
     } catch (error) {

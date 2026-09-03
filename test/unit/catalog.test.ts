@@ -918,10 +918,23 @@ describe('CatalogClient prefixes and existence checks', (): void => {
     ['/ws//foo/', '/base/v1/ws/foo/namespaces'],
     ['my ws/rest+catalog', '/base/v1/my%20ws/rest%2Bcatalog/namespaces'],
     ['tenant', '/base/v1/tenant/namespaces'],
+    ['a.b/c..d', '/base/v1/a.b/c..d/namespaces'],
     ['', '/base/v1/namespaces'],
   ])('encodes the %s prefix per path segment', async (prefix, expected): Promise<void> => {
     expect(await pathForPrefix(prefix)).toBe(expected);
   });
+
+  it.each(['../..', 'a/../../etc', '.'])(
+    'refuses the %s prefix instead of routing outside the base path',
+    async (prefix): Promise<void> => {
+      await expect(pathForPrefix(prefix)).rejects.toMatchObject({
+        message: 'Catalog config advertised a prefix that escapes the configured base path',
+        name: 'UpstreamError',
+        retryable: false,
+        status: 502,
+      });
+    },
+  );
 
   it('treats any successful HEAD status as existence', async (): Promise<void> => {
     const scripted = scriptedFetch(

@@ -150,7 +150,9 @@ Requests use:
 
 - an operator-configured URI and warehouse only;
 - strict path-segment encoding for namespaces, identifiers, and the discovered prefix, so a
-  multi-segment prefix routes as separate segments;
+  multi-segment prefix routes as separate segments; a prefix whose segments include `.` or `..` is
+  refused at discovery, because encoding leaves a dot segment intact and the request would resolve
+  outside the configured base path;
 - a total deadline and abort signal;
 - bounded response bytes and concurrency;
 - explicit accepted content types;
