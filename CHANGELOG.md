@@ -24,6 +24,16 @@ The project is licensed under the MIT License.
   when present (falling back to the built-in `api`, `common`, `core`, `data`, `orc`, `parquet`) and
   is exposed as `SourceIndex.stableModules`: a filter over the indexed records, not a boundary on
   the walk.
+- `iceberg_source_find_implementations` now matches parsed supertype clauses instead of a regular
+  expression that scanned the whole line after an `extends`/`implements` keyword (F30). Each clause
+  outside angle brackets is split into the simple type names it declares — generic arguments and
+  package qualifiers removed — while a keyword inside angle brackets is recognised as a generic
+  bound. `extends Foo<Name>`, `class C<T extends Name>`, and `implements Map<String, Name>` no
+  longer report `Name`; `implements A, Name`, `extends Name<T>`, and
+  `extends org.apache.iceberg.Name` still do. On the Apache Iceberg checkout, searching for
+  implementations of `org.apache.iceberg.Table` drops from 24 hits to the 10 real ones. The clauses
+  are recorded while indexing, so the search no longer re-reads and re-strips every file (F32): it
+  runs from memory in about 1 ms instead of 950 ms.
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the

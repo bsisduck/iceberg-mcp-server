@@ -4,7 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { InputError, LimitError, NotFoundError } from '../shared/errors.js';
-import type { SourceIdentity, SourceIndex, SourceTypeRecord } from './types.js';
+import type { SourceIdentity, SourceIndex, SourceTypeRecord, SuperTypeReference } from './types.js';
 
 const execFileAsync = promisify(execFile);
 const JAVA_FILE_LIMIT = 10_000;
@@ -34,6 +34,13 @@ const REVAPI_RELATIVE_PATH = path.join('.palantir', 'revapi.yml');
 const REVAPI_MAX_BYTES = 4_000_000;
 /** Maven coordinates of the modules RevAPI checks, for example `org.apache.iceberg:iceberg-core:`. */
 const REVAPI_MODULE_PATTERN = /(?:^|\s)org\.apache\.iceberg:iceberg-([a-z0-9][a-z0-9-]*)\s*:/gmu;
+/** A declaration line names at most this many supertypes; the rest of the file is still indexed. */
+const SUPER_TYPE_REFERENCE_LIMIT = 200;
+const PREVIEW_MAX_CHARS = 500;
+const SUPER_TYPE_KEYWORD_PATTERN = /\b(?:extends|implements)\b/gu;
+/** A supertype clause ends at the class body, the statement end, or a field initializer. */
+const SUPER_TYPE_TERMINATOR_PATTERN = /[{;=]/u;
+const SIMPLE_NAME_PATTERN = /^[A-Za-z_$][\w$]*$/u;
 const packagePattern = /^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;/mu;
 const declarationPattern =
   /(?:^|\s)(?:public\s+|protected\s+|private\s+|static\s+|final\s+|abstract\s+|sealed\s+|non-sealed\s+|strictfp\s+)*(?:@interface|class|interface|enum|record)\s+([A-Za-z_$][\w$]*)/gmu;
@@ -315,6 +322,104 @@ async function readStableModules(root: string): Promise<ReadonlySet<string>> {
   return modules.size > 0 ? modules : STABLE_MODULES;
 }
 
+/**
+ * Angle-bracket nesting depth of `line` up to `end`. A `>` never takes the depth below zero, so an
+ * arrow (`->`) or a comparison in the same line cannot make a later keyword look nested.
+ */
+function angleDepth(line: string, end: number): number {
+  let depth = 0;
+  for (let index = 0; index < end; index += 1) {
+    const character = line[index];
+    if (character === '<') {
+      depth += 1;
+    } else if (character === '>' && depth > 0) {
+      depth -= 1;
+    }
+  }
+  return depth;
+}
+
+/**
+ * The simple type names named by one `extends`/`implements` clause: generic arguments and package
+ * qualifiers are dropped, so `extends Foo<Name>` names `Foo`, `extends org.apache.iceberg.Name` and
+ * `extends Name<T>` both name `Name`, and `implements A, Name` names both.
+ */
+function clauseTypeNames(clause: string): readonly string[] {
+  const names: string[] = [];
+  let depth = 0;
+  let start = 0;
+  const parts: string[] = [];
+  for (let index = 0; index < clause.length; index += 1) {
+    const character = clause[index];
+    if (character === '<') {
+      depth += 1;
+    } else if (character === '>' && depth > 0) {
+      depth -= 1;
+    } else if (character === ',' && depth === 0) {
+      parts.push(clause.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(clause.slice(start));
+  for (const part of parts) {
+    const head = part.trim().split('<', 1)[0]?.trim().split(/\s+/u).at(-1) ?? '';
+    const simple = head.split('.').at(-1) ?? '';
+    if (SIMPLE_NAME_PATTERN.test(simple)) {
+      names.push(simple);
+    }
+  }
+  return names;
+}
+
+/**
+ * Every `extends`/`implements` clause on one comment- and string-stripped line, parsed into the
+ * simple type names it declares. A keyword inside angle brackets is a generic bound
+ * (`<T extends Name>`), not a supertype, so only depth-zero keywords open a clause.
+ */
+function superTypeClauses(line: string): readonly { column: number; names: readonly string[] }[] {
+  const keywords: { end: number; start: number }[] = [];
+  for (const match of line.matchAll(SUPER_TYPE_KEYWORD_PATTERN)) {
+    if (angleDepth(line, match.index) === 0) {
+      keywords.push({ end: match.index + match[0].length, start: match.index });
+    }
+  }
+  const clauses: { column: number; names: readonly string[] }[] = [];
+  for (const [position, keyword] of keywords.entries()) {
+    const limit = keywords[position + 1]?.start ?? line.length;
+    const text = line.slice(keyword.end, limit);
+    const terminator = text.search(SUPER_TYPE_TERMINATOR_PATTERN);
+    const names = clauseTypeNames(terminator === -1 ? text : text.slice(0, terminator));
+    if (names.length > 0) {
+      clauses.push({ column: keyword.start + 1, names });
+    }
+  }
+  return clauses;
+}
+
+function superTypeReferences(
+  strippedLines: readonly string[],
+  rawLines: readonly string[],
+): readonly SuperTypeReference[] {
+  const references: SuperTypeReference[] = [];
+  for (const [index, line] of strippedLines.entries()) {
+    if (!line.includes('extends') && !line.includes('implements')) {
+      continue;
+    }
+    for (const clause of superTypeClauses(line)) {
+      references.push({
+        column: clause.column,
+        line: index + 1,
+        names: clause.names,
+        preview: rawLines[index]?.trim().slice(0, PREVIEW_MAX_CHARS) ?? '',
+      });
+      if (references.length >= SUPER_TYPE_REFERENCE_LIMIT) {
+        return references;
+      }
+    }
+  }
+  return references;
+}
+
 async function readJavaFile(root: string, filename: string): Promise<string> {
   const canonical = await realpath(filename);
   if (!isWithinRoot(root, canonical)) {
@@ -429,36 +534,27 @@ export class SourceProvider {
     if (!target.declarationNames.includes(simpleName)) {
       throw new NotFoundError(`Java source type not found: ${fullyQualifiedName}`);
     }
-    const escapedName = simpleName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    const declaration = new RegExp(
-      `\\b(?:extends|implements)\\s+[^\\n{;]*\\b${escapedName}\\b`,
-      'u',
-    );
     const boundedLimit = Math.min(limit, 200);
     const matches: SourceMatch[] = [];
     let seen = 0;
     for (const record of index.files) {
-      const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
-      const originalLines = source.split(/\r?\n/u);
-      const lines = stripCommentsAndStrings(source).split(/\r?\n/u);
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-        const line = lines[lineIndex] ?? '';
-        const match = declaration.exec(line);
-        if (match !== null) {
-          if (seen >= offset) {
-            matches.push({
-              column: match.index + 1,
-              fullyQualifiedName: record.fullyQualifiedName,
-              line: lineIndex + 1,
-              module: record.module,
-              preview: originalLines[lineIndex]?.trim().slice(0, 500) ?? '',
-              relativePath: record.relativePath,
-            });
-          }
-          seen += 1;
-          if (matches.length > boundedLimit) {
-            return { hasMore: true, items: matches.slice(0, boundedLimit) };
-          }
+      for (const reference of record.superTypes) {
+        if (!reference.names.includes(simpleName)) {
+          continue;
+        }
+        if (seen >= offset) {
+          matches.push({
+            column: reference.column,
+            fullyQualifiedName: record.fullyQualifiedName,
+            line: reference.line,
+            module: record.module,
+            preview: reference.preview,
+            relativePath: record.relativePath,
+          });
+        }
+        seen += 1;
+        if (matches.length > boundedLimit) {
+          return { hasMore: true, items: matches.slice(0, boundedLimit) };
         }
       }
     }
@@ -501,6 +597,7 @@ export class SourceProvider {
         packageName,
         relativePath,
         stableModule: stableModules.has(module),
+        superTypes: superTypeReferences(stripped.split(/\r?\n/u), source.split(/\r?\n/u)),
       });
     }
     records.sort((left, right) => left.fullyQualifiedName.localeCompare(right.fullyQualifiedName));

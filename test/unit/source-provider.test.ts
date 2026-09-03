@@ -177,6 +177,47 @@ describe('SourceProvider', (): void => {
     );
   });
 
+  it('matches declared supertypes without matching generic parameters or bounds', async (): Promise<void> => {
+    const root = await createCheckout();
+    const declarations = new Map([
+      ['GenericArgument', 'public class GenericArgument extends Foo<Name> {}'],
+      ['SecondInterface', 'public class SecondInterface implements A, Name {}'],
+      ['GenericSelf', 'public class GenericSelf extends Name<T> {}'],
+      ['Qualified', 'public class Qualified extends org.apache.iceberg.Name {}'],
+      ['GenericBound', 'public class GenericBound<T extends Name> extends Foo {}'],
+      ['MapValue', 'public class MapValue implements Map<String, Name> {}'],
+    ]);
+    const directory = path.join(root, 'api', 'src', 'main', 'java', 'org', 'apache', 'iceberg');
+    for (const [name, declaration] of declarations) {
+      await writeFile(
+        path.join(directory, `${name}.java`),
+        `package org.apache.iceberg;
+         ${declaration}
+        `,
+      );
+    }
+    await writeFile(
+      path.join(directory, 'Name.java'),
+      `package org.apache.iceberg;
+       public interface Name {}
+      `,
+    );
+    const provider = await SourceProvider.create(root);
+
+    const implementations = await provider.findImplementations('org.apache.iceberg.Name');
+
+    expect(implementations.items.map((item) => item.fullyQualifiedName).sort()).toEqual([
+      'org.apache.iceberg.GenericSelf',
+      'org.apache.iceberg.Qualified',
+      'org.apache.iceberg.SecondInterface',
+    ]);
+    expect(implementations.items[0]).toMatchObject({
+      column: 35,
+      line: 2,
+      preview: 'public class GenericSelf extends Name<T> {}',
+    });
+  });
+
   it('does not follow directory symlinks', async (): Promise<void> => {
     const root = await createCheckout();
     const outside = await mkdtemp(path.join(tmpdir(), 'iceberg-source-outside-'));

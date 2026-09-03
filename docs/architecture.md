@@ -151,6 +151,13 @@ Callers select a fully qualified indexed type. No capability accepts a raw path.
 returns a bounded line window with line numbers and provenance. Lexical implementation search is
 labeled as such. Every indexed path is canonicalized again immediately before it is opened.
 
+Implementation search resolves against supertype clauses recorded while indexing. Each `extends` or
+`implements` clause outside angle brackets is parsed into the simple type names it declares, with
+generic arguments and package qualifiers removed, so `extends Foo<Name>`, `<T extends Name>`, and
+`implements Map<String, Name>` do not report `Name` as a supertype, while `implements A, Name`,
+`extends Name<T>`, and `extends org.apache.iceberg.Name` do. Matching is by simple name, so a
+same-named type from another package is reported as lexical evidence.
+
 ### REST Catalog client
 
 The client is created only when `ICEBERG_CATALOG_URI` is configured. Initialization calls

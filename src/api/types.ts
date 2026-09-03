@@ -51,6 +51,17 @@ export interface TypeDocumentation {
   readonly title: string;
 }
 
+/**
+ * One `extends`/`implements` clause found while indexing a file, already parsed into the simple type
+ * names it declares. Recording the clause at index time keeps an implementation search in memory.
+ */
+export interface SuperTypeReference {
+  readonly column: number;
+  readonly line: number;
+  readonly names: readonly string[];
+  readonly preview: string;
+}
+
 export interface SourceTypeRecord {
   readonly declarationNames: readonly string[];
   readonly fullyQualifiedName: string;
@@ -58,6 +69,7 @@ export interface SourceTypeRecord {
   readonly packageName: string;
   readonly relativePath: string;
   readonly stableModule: boolean;
+  readonly superTypes: readonly SuperTypeReference[];
 }
 
 export interface SourceIdentity {
