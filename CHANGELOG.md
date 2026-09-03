@@ -53,6 +53,18 @@ The project is licensed under the MIT License.
   the ref it names are read directly, with a `packed-refs` fallback, a detached `HEAD` taken as the
   revision, and a bound on both file sizes. On the Apache Iceberg checkout this reports the same
   revision and branch as `git rev-parse HEAD` and `git branch --show-current`.
+- A Javadoc body that is not valid UTF-8 now raises a retryable `UpstreamError` (502) instead of an
+  `InputError` (F29): the bytes came from the Javadoc host, not from the caller, and a truncated
+  transfer decodes exactly this way.
+- The Javadoc search-index parsers no longer fail the whole load over one unreadable record (F29).
+  The JDK's index format is unversioned, so record schemas now ignore unknown keys, a record that
+  does not fit is skipped and counted, and one `javadoc.index.skipped_records` warning is written
+  per index file. A load fails only when the assignment wrapper is unparseable, when fewer than half
+  the records survive (`Invalid <kind> index records: N of M skipped`), or when a record's URL would
+  escape the version root — which stays a hard failure. `ErrorReporter` gained an optional
+  `warn(event, details)` method, implemented by `createStderrReporter` as a `level: "warn"` stderr
+  line and suppressed by `ICEBERG_MCP_LOG_LEVEL=error`; `createServices` now builds the Javadoc
+  provider's reporter from the configured log level.
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the

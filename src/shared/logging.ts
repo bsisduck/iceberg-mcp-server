@@ -14,6 +14,11 @@ export function isLogLevel(value: string): value is LogLevel {
 
 export interface ErrorReporter {
   report(error: unknown, event: string, correlationId?: string): void;
+  /**
+   * One structured, non-fatal diagnostic: something was degraded or skipped but the call continues.
+   * Optional, so a minimal reporter only has to implement `report`.
+   */
+  warn?(event: string, details: Record<string, unknown>): void;
 }
 
 /**
@@ -61,6 +66,17 @@ export function createStderrReporter(level: LogLevel = 'info'): ErrorReporter {
         error_name: error instanceof Error ? error.name : 'NonErrorThrown',
         message: redactText(errorMessage(error)),
         ...(level === 'debug' && stack !== undefined ? { stack: redactText(stack) } : {}),
+      });
+    },
+    warn(event: string, details: Record<string, unknown>): void {
+      if (!enabled('info', level)) {
+        return;
+      }
+      write({
+        ts: new Date().toISOString(),
+        level: 'warn',
+        event,
+        details: redactSecrets(details),
       });
     },
   };

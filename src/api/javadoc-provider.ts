@@ -3,7 +3,9 @@ import { TextDecoder } from 'node:util';
 import type { JavadocConfig } from '../config.js';
 import { AsyncTtlCache } from '../shared/cache.js';
 import { BoundedFetcher } from '../shared/fetch.js';
-import { InputError, NotFoundError } from '../shared/errors.js';
+import { InputError, NotFoundError, UpstreamError } from '../shared/errors.js';
+import type { ErrorReporter } from '../shared/logging.js';
+import { stderrReporter } from '../shared/logging.js';
 import { isIcebergVersion } from '../shared/iceberg-version.js';
 import { USER_AGENT } from '../version.js';
 import {
@@ -19,6 +21,7 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 export interface JavadocProviderOptions {
   readonly config: JavadocConfig;
   readonly fetch?: typeof globalThis.fetch;
+  readonly reporter?: ErrorReporter | undefined;
   readonly requestTimeoutMs: number;
 }
 
@@ -26,17 +29,22 @@ function versionTtl(version: string): number {
   return version === 'nightly' ? 5 * 60_000 : 24 * 60 * 60_000;
 }
 
+/**
+ * A body the Javadoc host sent that is not valid UTF-8 is an upstream problem, not caller input: a
+ * truncated transfer decodes exactly this way, so the failure is reported as retryable.
+ */
 function decodeBody(body: Uint8Array, label: string): string {
   try {
     return decoder.decode(body);
   } catch (error) {
-    throw new InputError(`${label} is not valid UTF-8`, { cause: error });
+    throw new UpstreamError(`${label} is not valid UTF-8`, 502, true, { cause: error });
   }
 }
 
 export class JavadocProvider {
   readonly #baseUrl: URL;
   readonly #fetcher: BoundedFetcher;
+  readonly #reporter: ErrorReporter;
   readonly #nightlyIndexCache = new AsyncTtlCache<JavadocIndex>({
     maxEntries: 1,
     negativeTtlMs: 10_000,
@@ -60,6 +68,7 @@ export class JavadocProvider {
 
   public constructor(options: JavadocProviderOptions) {
     this.#baseUrl = new URL(options.config.baseUrl);
+    this.#reporter = options.reporter ?? stderrReporter;
     this.#fetcher = new BoundedFetcher({
       allowedBaseUrl: this.#baseUrl,
       concurrency: 4,
@@ -91,11 +100,12 @@ export class JavadocProvider {
         this.#loadIndexFile(root, 'type-search-index.js', 4_000_000, signal),
         this.#loadIndexFile(root, 'member-search-index.js', 32_000_000, signal),
       ]);
+      const parseOptions = { reporter: this.#reporter };
       return {
         loadedAt: new Date(),
-        members: parseMemberIndex(members, root),
-        packages: parsePackageIndex(packages, root),
-        types: parseTypeIndex(types, root),
+        members: parseMemberIndex(members, root, parseOptions),
+        packages: parsePackageIndex(packages, root, parseOptions),
+        types: parseTypeIndex(types, root, parseOptions),
         version,
       };
     });

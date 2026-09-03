@@ -122,6 +122,13 @@ validates every record, and rejects trailing executable content. Type/member HTM
 only from validated index records. Redirects are revalidated against the configured origin and path
 prefix.
 
+The JDK's search-index format is unversioned, so record validation ignores unknown keys and skips an
+individual record it cannot read, counting it and emitting one `javadoc.index.skipped_records`
+warning per index file. The load fails only when the wrapper itself is unparseable, when fewer than
+half the records survive, or when a record's URL would escape the version root — a security
+condition, never a skip. A body that is not valid UTF-8 is reported as a retryable upstream failure,
+since that is what a truncated transfer looks like.
+
 Each version cache is immutable after load. Concurrent loads share one promise. Failures are
 negatively cached briefly to avoid retry storms; successful indexes use a bounded TTL and entry
 count. Individual HTML pages have separate byte and TTL limits.

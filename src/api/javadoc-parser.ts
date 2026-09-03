@@ -9,24 +9,57 @@ import type {
   TypeRecord,
 } from './types.js';
 import { UpstreamError } from '../shared/errors.js';
+import type { ErrorReporter } from '../shared/logging.js';
 
 const packageNameSchema = z.string().regex(/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u);
 const typeNameSchema = z.string().regex(/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u);
-const packageIndexRecordSchema = z.strictObject({
+/**
+ * The JDK's search-index format is unversioned, so a new key must not take the whole index down:
+ * the record schemas ignore unknown properties and a record that does not fit is skipped and
+ * counted rather than thrown.
+ */
+const packageIndexRecordSchema = z.object({
   l: z.string().min(1).max(500),
   u: z.string().optional(),
 });
-const typeIndexRecordSchema = z.strictObject({
+const typeIndexRecordSchema = z.object({
   l: z.string().min(1).max(500),
   p: packageNameSchema.optional(),
   u: z.string().max(1_000).optional(),
 });
-const memberIndexRecordSchema = z.strictObject({
+const memberIndexRecordSchema = z.object({
   c: z.string().max(500),
   l: z.string().min(1).max(2_000),
   p: z.string().max(500),
   u: z.string().max(4_000).optional(),
 });
+
+export interface JavadocParseOptions {
+  readonly reporter?: ErrorReporter | undefined;
+}
+
+/**
+ * Reports the records that did not fit the schema. A handful is upstream drift and is warned about;
+ * losing half of them means the format changed under us, which is an upstream failure.
+ */
+function verifyRecords(
+  label: string,
+  kept: number,
+  skipped: number,
+  reporter: ErrorReporter | undefined,
+): void {
+  if (skipped === 0) {
+    return;
+  }
+  if (kept < skipped) {
+    throw new UpstreamError(
+      `Invalid ${label}s: ${skipped} of ${kept + skipped} skipped`,
+      502,
+      false,
+    );
+  }
+  reporter?.warn?.('javadoc.index.skipped_records', { kept, label, skipped });
+}
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/gu, ' ').trim();
@@ -61,12 +94,18 @@ function safeJavadocUrl(root: URL, relative: string): string {
   return parsed.href;
 }
 
-export function parsePackageIndex(text: string, root: URL): readonly PackageRecord[] {
+export function parsePackageIndex(
+  text: string,
+  root: URL,
+  options: JavadocParseOptions = {},
+): readonly PackageRecord[] {
   const packages: PackageRecord[] = [];
+  let skipped = 0;
   for (const entry of parseAssignment(text, 'packageSearchIndex')) {
     const parsed = packageIndexRecordSchema.safeParse(entry);
     if (!parsed.success) {
-      throw new UpstreamError('Invalid package index record', 502, false);
+      skipped += 1;
+      continue;
     }
     if (!packageNameSchema.safeParse(parsed.data.l).success) {
       continue;
@@ -79,21 +118,29 @@ export function parsePackageIndex(text: string, root: URL): readonly PackageReco
       ),
     });
   }
+  verifyRecords('package index record', packages.length, skipped, options.reporter);
   return packages;
 }
 
-export function parseTypeIndex(text: string, root: URL): readonly TypeRecord[] {
+export function parseTypeIndex(
+  text: string,
+  root: URL,
+  options: JavadocParseOptions = {},
+): readonly TypeRecord[] {
   const results: TypeRecord[] = [];
+  let skipped = 0;
   for (const entry of parseAssignment(text, 'typeSearchIndex')) {
     const parsed = typeIndexRecordSchema.safeParse(entry);
     if (!parsed.success) {
-      throw new UpstreamError('Invalid type index record', 502, false);
+      skipped += 1;
+      continue;
     }
     if (parsed.data.p === undefined) {
       continue;
     }
     if (!typeNameSchema.safeParse(parsed.data.l).success) {
-      throw new UpstreamError('Invalid type index record', 502, false);
+      skipped += 1;
+      continue;
     }
     results.push({
       fullyQualifiedName: `${parsed.data.p}.${parsed.data.l}`,
@@ -102,15 +149,22 @@ export function parseTypeIndex(text: string, root: URL): readonly TypeRecord[] {
       url: safeJavadocUrl(root, parsed.data.u ?? typePath(parsed.data.p, parsed.data.l)),
     });
   }
+  verifyRecords('type index record', results.length, skipped, options.reporter);
   return results;
 }
 
-export function parseMemberIndex(text: string, root: URL): readonly MemberRecord[] {
+export function parseMemberIndex(
+  text: string,
+  root: URL,
+  options: JavadocParseOptions = {},
+): readonly MemberRecord[] {
   const members: MemberRecord[] = [];
+  let skipped = 0;
   for (const entry of parseAssignment(text, 'memberSearchIndex')) {
     const parsed = memberIndexRecordSchema.safeParse(entry);
     if (!parsed.success) {
-      throw new UpstreamError('Invalid member index record', 502, false);
+      skipped += 1;
+      continue;
     }
     if (parsed.data.p === '' && parsed.data.c === '') {
       continue;
@@ -119,7 +173,8 @@ export function parseMemberIndex(text: string, root: URL): readonly MemberRecord
       !packageNameSchema.safeParse(parsed.data.p).success ||
       !typeNameSchema.safeParse(parsed.data.c).success
     ) {
-      throw new UpstreamError('Invalid member index record', 502, false);
+      skipped += 1;
+      continue;
     }
     const anchor = parsed.data.u ?? parsed.data.l;
     members.push({
@@ -131,6 +186,7 @@ export function parseMemberIndex(text: string, root: URL): readonly MemberRecord
       url: safeJavadocUrl(root, `${typePath(parsed.data.p, parsed.data.c)}#${anchor}`),
     });
   }
+  verifyRecords('member index record', members.length, skipped, options.reporter);
   return members;
 }
 

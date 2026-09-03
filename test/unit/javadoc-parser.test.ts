@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   parseMemberIndex,
@@ -54,6 +54,38 @@ describe('Javadoc parser', (): void => {
         root,
       ),
     ).toThrow(/Invalid member index record/u);
+  });
+
+  it('ignores unknown record keys and skips one malformed record with a counted warning', (): void => {
+    const warn = vi.fn();
+
+    const types = parseTypeIndex(
+      'typeSearchIndex = [{"p":"org.apache.iceberg","l":"Table","zz":"added by a newer JDK"}];updateSearchResults();',
+      root,
+      { reporter: { report: vi.fn(), warn } },
+    );
+    const members = parseMemberIndex(
+      'memberSearchIndex = [{"p":"org.apache.iceberg","c":"Table","l":"schema()"},{"p":"org.apache.iceberg","c":"Table"},{"p":"org.apache.iceberg","c":"Table","l":"refresh()"}];updateSearchResults();',
+      root,
+      { reporter: { report: vi.fn(), warn } },
+    );
+
+    expect(types).toHaveLength(1);
+    expect(members.map((member) => member.label)).toEqual(['schema()', 'refresh()']);
+    expect(warn).toHaveBeenCalledExactlyOnceWith('javadoc.index.skipped_records', {
+      kept: 2,
+      label: 'member index record',
+      skipped: 1,
+    });
+  });
+
+  it('fails when fewer than half of the records survive', (): void => {
+    expect(() =>
+      parseMemberIndex(
+        'memberSearchIndex = [{"p":"org.apache.iceberg","c":"Table","l":"schema()"},{"c":"Table","l":"a()"},{"c":"Table","l":"b()"}];updateSearchResults();',
+        root,
+      ),
+    ).toThrow(/Invalid member index records: 2 of 3 skipped/u);
   });
 
   it('refuses executable suffixes and external URLs', (): void => {

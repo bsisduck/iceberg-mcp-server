@@ -3,6 +3,7 @@ import { ApiService } from './api/api-service.js';
 import { JavadocProvider } from './api/javadoc-provider.js';
 import { SourceProvider } from './api/source-provider.js';
 import { CatalogClient } from './catalog/client.js';
+import { createStderrReporter } from './shared/logging.js';
 
 export interface Services {
   readonly api: ApiService;
@@ -13,6 +14,7 @@ export interface Services {
 export async function createServices(config: AppConfig): Promise<Services> {
   const javadoc = new JavadocProvider({
     config: config.javadoc,
+    reporter: createStderrReporter(config.logLevel),
     requestTimeoutMs: config.limits.requestTimeoutMs,
   });
   const source =

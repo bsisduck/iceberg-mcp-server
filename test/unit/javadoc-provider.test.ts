@@ -63,6 +63,30 @@ describe('JavadocProvider', (): void => {
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 
+  it('reports an undecodable index body as a retryable upstream failure', async (): Promise<void> => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(new Uint8Array([0xff, 0xfe, 0xfd]), {
+          headers: { 'content-type': 'application/javascript' },
+        }),
+      ),
+    );
+    const provider = new JavadocProvider({
+      config: {
+        baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        version: '1.11.0',
+      },
+      fetch,
+      requestTimeoutMs: 1_000,
+    });
+
+    await expect(provider.loadIndex('1.11.0')).rejects.toMatchObject({
+      name: 'UpstreamError',
+      retryable: true,
+      status: 502,
+    });
+  });
+
   it('rejects unbounded version identifiers before fetching', async (): Promise<void> => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const provider = new JavadocProvider({
