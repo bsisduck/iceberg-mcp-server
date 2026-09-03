@@ -1156,8 +1156,10 @@ describe('CatalogClient mutation audit trail', (): void => {
       { body: { 'table-changes': [{ updates: [] }] }, operationId: 'commitTransaction', path: {} },
       { args: { table_changes: [{ updates: [] }] } },
     );
+    // An embedder can also call the client with neither arguments nor a body to read.
+    await client.call({ operationId: 'commitTransaction', path: {} });
 
-    expect(auditLines()[0]).toMatchObject({ identifier: '-' });
+    expect(auditLines().map((entry) => entry['identifier'])).toEqual(['-', '-']);
     client.close();
   });
 
