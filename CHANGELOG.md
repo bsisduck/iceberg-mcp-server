@@ -34,6 +34,17 @@ The project is licensed under the MIT License.
   implementations of `org.apache.iceberg.Table` drops from 24 hits to the 10 real ones. The clauses
   are recorded while indexing, so the search no longer re-reads and re-strips every file (F32): it
   runs from memory in about 1 ms instead of 950 ms.
+- A source literal search no longer reopens, re-reads, and re-strips every indexed file on every
+  query (F32). File text is captured while indexing, bounded by the new
+  `ICEBERG_SOURCE_INDEX_MAX_BYTES` (default 64 MB, `0` to read everything from disk); a file left
+  out of the bound is still read on demand, so results are the same either way. On the Apache
+  Iceberg checkout a search over all 3,194 files drops from about 530 ms to about 45 ms, for about
+  20 MB of retained text. Cached text is discarded whenever the index is rebuilt.
+- `SourceProvider.loadIndex`, `getType`, `search`, and `findImplementations` accept an optional
+  `AbortSignal` and check it once per file, so a disconnected client stops the scan with a
+  `CancelledError` instead of walking the rest of the checkout (F25). Every `ApiService` method that
+  performs IO takes the same optional `signal` and forwards it to the Javadoc fetches and the source
+  provider. A failed or cancelled index build is no longer cached: the next call rebuilds.
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the

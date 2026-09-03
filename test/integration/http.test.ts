@@ -47,6 +47,7 @@ function testConfig(overrides: Partial<AppConfig['http']> = {}): AppConfig {
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 15_000 },
     logLevel: 'info',
     sourceDir: undefined,
+    sourceIndexMaxBytes: 64_000_000,
     transport: 'http',
   };
 }

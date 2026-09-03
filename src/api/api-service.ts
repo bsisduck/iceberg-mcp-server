@@ -209,7 +209,7 @@ export class ApiService {
     this.#source = options.source;
   }
 
-  public async listVersions(): Promise<VersionListResult> {
+  public async listVersions(signal?: AbortSignal): Promise<VersionListResult> {
     const items: VersionItem[] = [];
     const configured = this.#config.javadoc.version;
     items.push({
@@ -227,7 +227,7 @@ export class ApiService {
       });
     }
     if (this.#source !== undefined) {
-      const sourceIndex = await this.#source.loadIndex();
+      const sourceIndex = await this.#source.loadIndex(signal);
       items.push({
         kind: 'source',
         label: sourceIndex.identity.revision ?? 'local-source',
@@ -244,9 +244,10 @@ export class ApiService {
     limit: number;
     packageName?: string | undefined;
     prefix?: string | undefined;
+    signal?: AbortSignal | undefined;
     version: string;
   }): Promise<PageEnvelope<ApiBrowseItem>> {
-    const index = await this.#javadoc.loadIndex(options.version);
+    const index = await this.#javadoc.loadIndex(options.version, options.signal);
     const query = {
       kind: options.kind,
       packageName: options.packageName ?? null,
@@ -279,9 +280,10 @@ export class ApiService {
     packageName?: string | undefined;
     query: string;
     scope: ApiSearchScope;
+    signal?: AbortSignal | undefined;
     version: string;
   }): Promise<PageEnvelope<ApiSearchItem>> {
-    const index = await this.#javadoc.loadIndex(options.version);
+    const index = await this.#javadoc.loadIndex(options.version, options.signal);
     const queryIdentity = {
       packageName: options.packageName ?? null,
       query: options.query.toLowerCase(),
@@ -326,13 +328,15 @@ export class ApiService {
     cursor?: string | undefined;
     fullyQualifiedName: string;
     memberLimit: number;
+    signal?: AbortSignal | undefined;
     version: string;
   }): Promise<TypeResult> {
     const { documentation, record } = await this.#javadoc.getType(
       options.version,
       options.fullyQualifiedName,
+      options.signal,
     );
-    const index = await this.#javadoc.loadIndex(options.version);
+    const index = await this.#javadoc.loadIndex(options.version, options.signal);
     const query = {
       fullyQualifiedName: options.fullyQualifiedName,
       version: options.version,
@@ -349,7 +353,7 @@ export class ApiService {
       next_member_cursor: memberPage.nextCursor ?? null,
       package_name: record.packageName,
       provenance: javadocProvenance(this.#javadoc, index),
-      stability: await this.#stability(record.fullyQualifiedName),
+      stability: await this.#stability(record.fullyQualifiedName, options.signal),
       title: documentation.title,
       url: record.url,
     };
@@ -358,9 +362,10 @@ export class ApiService {
   public async getMember(options: {
     fullyQualifiedName: string;
     member: string;
+    signal?: AbortSignal | undefined;
     version: string;
   }): Promise<MemberResult> {
-    const index = await this.#javadoc.loadIndex(options.version);
+    const index = await this.#javadoc.loadIndex(options.version, options.signal);
     const record = index.members.find(
       (candidate) =>
         candidate.typeFullyQualifiedName === options.fullyQualifiedName &&
@@ -374,6 +379,7 @@ export class ApiService {
     const { documentation } = await this.#javadoc.getType(
       options.version,
       options.fullyQualifiedName,
+      options.signal,
     );
     const detail = this.#memberDetail(documentation, record);
     return {
@@ -395,14 +401,15 @@ export class ApiService {
     kind: ApiBrowseKind;
     limit: number;
     packageName?: string | undefined;
+    signal?: AbortSignal | undefined;
     toVersion: string;
   }): Promise<PageEnvelope<ComparisonItem>> {
     if (options.fromVersion === options.toVersion) {
       throw new InputError('Comparison versions must be different');
     }
     const [fromIndex, toIndex] = await Promise.all([
-      this.#javadoc.loadIndex(options.fromVersion),
-      this.#javadoc.loadIndex(options.toVersion),
+      this.#javadoc.loadIndex(options.fromVersion, options.signal),
+      this.#javadoc.loadIndex(options.toVersion, options.signal),
     ]);
     const filterPackage = (record: MemberRecord | PackageRecord | TypeRecord): boolean =>
       options.packageName === undefined || browseItem(record).package_name === options.packageName;
@@ -438,12 +445,18 @@ export class ApiService {
   public async getSourceType(options: {
     fullyQualifiedName: string;
     lineCount: number;
+    signal?: AbortSignal | undefined;
     startLine: number;
   }): Promise<SourceResult> {
     const source = this.#requireSource();
     const [window, index] = await Promise.all([
-      source.getType(options.fullyQualifiedName, options.startLine, options.lineCount),
-      source.loadIndex(),
+      source.getType(
+        options.fullyQualifiedName,
+        options.startLine,
+        options.lineCount,
+        options.signal,
+      ),
+      source.loadIndex(options.signal),
     ]);
     return {
       ...window,
@@ -459,13 +472,14 @@ export class ApiService {
     cursor?: string | undefined;
     limit: number;
     literal: string;
+    signal?: AbortSignal | undefined;
   }): Promise<SourceSearchResult> {
     const source = this.#requireSource();
     const query = { kind: 'source-search', literal: options.literal };
     const offset = decodeCursor(options.cursor, query);
     const [page, index] = await Promise.all([
-      source.search(options.literal, options.limit, offset),
-      source.loadIndex(),
+      source.search(options.literal, options.limit, offset, options.signal),
+      source.loadIndex(options.signal),
     ]);
     return {
       count: page.items.length,
@@ -485,6 +499,7 @@ export class ApiService {
     cursor?: string | undefined;
     fullyQualifiedName: string;
     limit: number;
+    signal?: AbortSignal | undefined;
   }): Promise<SourceSearchResult> {
     const source = this.#requireSource();
     const query = {
@@ -493,8 +508,8 @@ export class ApiService {
     };
     const offset = decodeCursor(options.cursor, query);
     const [page, index] = await Promise.all([
-      source.findImplementations(options.fullyQualifiedName, options.limit, offset),
-      source.loadIndex(),
+      source.findImplementations(options.fullyQualifiedName, options.limit, offset, options.signal),
+      source.loadIndex(options.signal),
     ]);
     return {
       count: page.items.length,
@@ -532,7 +547,10 @@ export class ApiService {
     );
   }
 
-  async #stability(fullyQualifiedName: string): Promise<StabilityEvidence> {
+  async #stability(
+    fullyQualifiedName: string,
+    signal: AbortSignal | undefined,
+  ): Promise<StabilityEvidence> {
     if (this.#source === undefined) {
       return {
         classification: 'public-unclassified',
@@ -541,7 +559,7 @@ export class ApiService {
         source_revision: null,
       };
     }
-    const index = await this.#source.loadIndex();
+    const index = await this.#source.loadIndex(signal);
     let record: SourceTypeRecord | undefined = index.byFullyQualifiedName.get(fullyQualifiedName);
     const segments = fullyQualifiedName.split('.');
     while (record === undefined && segments.length > 1) {

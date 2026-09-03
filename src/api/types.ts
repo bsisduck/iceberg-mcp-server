@@ -84,6 +84,12 @@ export interface SourceIndex {
   readonly identity: SourceIdentity;
   readonly loadedAt: Date;
   /**
+   * File text captured while indexing, keyed by relative path, so a literal search does not reopen
+   * the checkout. Bounded by `ICEBERG_SOURCE_INDEX_MAX_BYTES`; a file left out of the map is read
+   * from disk on demand.
+   */
+  readonly sources: ReadonlyMap<string, string>;
+  /**
    * The modules RevAPI checks for binary compatibility, derived from the checkout. A filter over the
    * indexed records rather than a boundary on what is indexed.
    */

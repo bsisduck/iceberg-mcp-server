@@ -16,7 +16,11 @@ export async function createServices(config: AppConfig): Promise<Services> {
     requestTimeoutMs: config.limits.requestTimeoutMs,
   });
   const source =
-    config.sourceDir === undefined ? undefined : await SourceProvider.create(config.sourceDir);
+    config.sourceDir === undefined
+      ? undefined
+      : await SourceProvider.create(config.sourceDir, {
+          indexMaxBytes: config.sourceIndexMaxBytes,
+        });
   const api = new ApiService({ config, javadoc, source });
   const catalog =
     config.catalog.uri === undefined

@@ -3,12 +3,18 @@ import { open, opendir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { InputError, LimitError, NotFoundError } from '../shared/errors.js';
+import { CancelledError, InputError, LimitError, NotFoundError } from '../shared/errors.js';
 import type { SourceIdentity, SourceIndex, SourceTypeRecord, SuperTypeReference } from './types.js';
 
 const execFileAsync = promisify(execFile);
 const JAVA_FILE_LIMIT = 10_000;
 const JAVA_FILE_MAX_BYTES = 2_000_000;
+/**
+ * How much source text the index may hold so a literal search runs from memory. The Apache Iceberg
+ * checkout's production sources are about 20 MB, so the default keeps all of them and still leaves
+ * room for a larger fork. Counted in characters, which equals bytes for ASCII source.
+ */
+export const DEFAULT_SOURCE_INDEX_MAX_BYTES = 64_000_000;
 /** Production sources live under `<module>/src/main/java`, at any depth below the checkout root. */
 const JAVA_SOURCE_SEGMENTS = ['src', 'main', 'java'] as const;
 /** Build output, tooling state, and version control never contain indexable production sources. */
@@ -182,6 +188,16 @@ async function sourceIdentity(root: string): Promise<SourceIdentity> {
 
 function isWithinRoot(root: string, filename: string): boolean {
   return filename.startsWith(`${root}${path.sep}`);
+}
+
+/**
+ * Stops a scan the caller no longer waits for. Checked per file so a cancelled request releases the
+ * checkout instead of walking it to the end.
+ */
+function assertNotCancelled(signal: AbortSignal | undefined, action: string): void {
+  if (signal?.aborted === true) {
+    throw new CancelledError(`Source ${action} was cancelled`);
+  }
 }
 
 interface DirectoryListing {
@@ -437,24 +453,46 @@ async function readJavaFile(root: string, filename: string): Promise<string> {
   }
 }
 
+export interface SourceProviderOptions {
+  /** Ceiling on the source text the index keeps in memory. `0` reads every file from disk. */
+  readonly indexMaxBytes?: number | undefined;
+}
+
 export class SourceProvider {
+  readonly #indexMaxBytes: number;
   readonly #root: string;
   #indexPromise: Promise<SourceIndex> | undefined;
 
-  private constructor(root: string) {
+  private constructor(root: string, indexMaxBytes: number) {
+    this.#indexMaxBytes = indexMaxBytes;
     this.#root = root;
   }
 
-  public static async create(root: string): Promise<SourceProvider> {
-    return new SourceProvider(await realpath(root));
+  public static async create(
+    root: string,
+    options: SourceProviderOptions = {},
+  ): Promise<SourceProvider> {
+    return new SourceProvider(
+      await realpath(root),
+      options.indexMaxBytes ?? DEFAULT_SOURCE_INDEX_MAX_BYTES,
+    );
   }
 
   public clear(): void {
     this.#indexPromise = undefined;
   }
 
-  public loadIndex(): Promise<SourceIndex> {
-    this.#indexPromise ??= this.#buildIndex();
+  public loadIndex(signal?: AbortSignal): Promise<SourceIndex> {
+    if (this.#indexPromise === undefined) {
+      const build = this.#buildIndex(signal);
+      this.#indexPromise = build;
+      // A cancelled or failed scan must not poison the provider: drop it so the next call rebuilds.
+      void build.catch(() => {
+        if (this.#indexPromise === build) {
+          this.#indexPromise = undefined;
+        }
+      });
+    }
     return this.#indexPromise;
   }
 
@@ -462,9 +500,11 @@ export class SourceProvider {
     fullyQualifiedName: string,
     startLine = 1,
     lineCount = 200,
+    signal?: AbortSignal,
   ): Promise<SourceWindow> {
-    const index = await this.loadIndex();
+    const index = await this.loadIndex(signal);
     const record = this.#resolveRecord(index, fullyQualifiedName);
+    assertNotCancelled(signal, 'window');
     const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
     const allLines = source.split(/\r?\n/u);
     const boundedStart = Math.max(1, Math.min(startLine, Math.max(1, allLines.length)));
@@ -482,16 +522,22 @@ export class SourceProvider {
     };
   }
 
-  public async search(literal: string, limit = 50, offset = 0): Promise<SourceMatchPage> {
+  public async search(
+    literal: string,
+    limit = 50,
+    offset = 0,
+    signal?: AbortSignal,
+  ): Promise<SourceMatchPage> {
     if (literal.length < 2 || literal.length > 200) {
       throw new LimitError('Source search literal must contain 2 to 200 characters');
     }
-    const index = await this.loadIndex();
+    const index = await this.loadIndex(signal);
     const boundedLimit = Math.min(limit, 200);
     const matches: SourceMatch[] = [];
     let seen = 0;
     for (const record of index.files) {
-      const source = await readJavaFile(this.#root, path.join(this.#root, record.relativePath));
+      assertNotCancelled(signal, 'search');
+      const source = await this.#sourceText(index, record);
       const lines = source.split(/\r?\n/u);
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         const line = lines[lineIndex] ?? '';
@@ -524,12 +570,13 @@ export class SourceProvider {
     fullyQualifiedName: string,
     limit = 100,
     offset = 0,
+    signal?: AbortSignal,
   ): Promise<SourceMatchPage> {
     const simpleName = fullyQualifiedName.split('.').at(-1);
     if (simpleName === undefined) {
       throw new NotFoundError(`Java type not found: ${fullyQualifiedName}`);
     }
-    const index = await this.loadIndex();
+    const index = await this.loadIndex(signal);
     const target = this.#resolveRecord(index, fullyQualifiedName);
     if (!target.declarationNames.includes(simpleName)) {
       throw new NotFoundError(`Java source type not found: ${fullyQualifiedName}`);
@@ -538,6 +585,7 @@ export class SourceProvider {
     const matches: SourceMatch[] = [];
     let seen = 0;
     for (const record of index.files) {
+      assertNotCancelled(signal, 'implementation scan');
       for (const reference of record.superTypes) {
         if (!reference.names.includes(simpleName)) {
           continue;
@@ -564,11 +612,21 @@ export class SourceProvider {
     return { hasMore: false, items: matches };
   }
 
-  async #buildIndex(): Promise<SourceIndex> {
+  #sourceText(index: SourceIndex, record: SourceTypeRecord): Promise<string> {
+    const cached = index.sources.get(record.relativePath);
+    return cached === undefined
+      ? readJavaFile(this.#root, path.join(this.#root, record.relativePath))
+      : Promise.resolve(cached);
+  }
+
+  async #buildIndex(signal: AbortSignal | undefined): Promise<SourceIndex> {
     const records: SourceTypeRecord[] = [];
+    const sources = new Map<string, string>();
     const stableModules = await readStableModules(this.#root);
+    let cachedCharacters = 0;
     let fileCount = 0;
     for await (const { filename, module } of javaFiles(this.#root)) {
+      assertNotCancelled(signal, 'index build');
       fileCount += 1;
       if (fileCount > JAVA_FILE_LIMIT) {
         throw new LimitError(`Source checkout contains more than ${JAVA_FILE_LIMIT} Java files`);
@@ -599,6 +657,10 @@ export class SourceProvider {
         stableModule: stableModules.has(module),
         superTypes: superTypeReferences(stripped.split(/\r?\n/u), source.split(/\r?\n/u)),
       });
+      if (cachedCharacters + source.length <= this.#indexMaxBytes) {
+        sources.set(relativePath, source);
+        cachedCharacters += source.length;
+      }
     }
     records.sort((left, right) => left.fullyQualifiedName.localeCompare(right.fullyQualifiedName));
     return {
@@ -606,6 +668,7 @@ export class SourceProvider {
       files: records,
       identity: await sourceIdentity(this.#root),
       loadedAt: new Date(),
+      sources,
       stableModules,
     };
   }

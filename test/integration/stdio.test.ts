@@ -47,6 +47,7 @@ function config(): AppConfig {
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 1_000 },
     logLevel: 'info',
     sourceDir: undefined,
+    sourceIndexMaxBytes: 64_000_000,
     transport: 'stdio',
   };
 }

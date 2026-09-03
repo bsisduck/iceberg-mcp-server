@@ -151,6 +151,15 @@ Callers select a fully qualified indexed type. No capability accepts a raw path.
 returns a bounded line window with line numbers and provenance. Lexical implementation search is
 labeled as such. Every indexed path is canonicalized again immediately before it is opened.
 
+A literal search reads the file text captured during indexing instead of reopening the checkout.
+`ICEBERG_SOURCE_INDEX_MAX_BYTES` bounds that text: files indexed after the bound is reached are read
+from disk on demand, and `0` disables the cache entirely. Iceberg's production sources are about 20
+MB, so the 64 MB default holds all of them; a search over the full checkout takes about 45 ms
+instead of about 530 ms. Cached text is replaced whenever the index is rebuilt. Every method that
+touches the filesystem — the index build, the line window, the literal search, and the
+implementation scan — accepts an `AbortSignal` and checks it once per file, so a client that
+disconnects stops the scan with a `CancelledError` instead of walking the rest of the checkout.
+
 Implementation search resolves against supertype clauses recorded while indexing. Each `extends` or
 `implements` clause outside angle brackets is parsed into the simple type names it declares, with
 generic arguments and package qualifiers removed, so `extends Foo<Name>`, `<T extends Name>`, and
@@ -298,6 +307,7 @@ classification reason and source.
 | `ICEBERG_JAVADOC_VERSION`         | `1.11.0`                        | Semver or `nightly`                               |
 | `ICEBERG_JAVADOC_BASE_URL`        | official Iceberg Javadoc origin | HTTPS; operator-only; redirects revalidated       |
 | `ICEBERG_SOURCE_DIR`              | sibling `../iceberg` when valid | Canonical readable Iceberg checkout               |
+| `ICEBERG_SOURCE_INDEX_MAX_BYTES`  | `64000000`                      | 0-1 GiB of indexed source text held in memory     |
 | `ICEBERG_CATALOG_URI`             | unset                           | Absolute HTTP(S); HTTPS required outside loopback |
 | `ICEBERG_CATALOG_WAREHOUSE`       | unset                           | Bounded string passed only to config discovery    |
 | `ICEBERG_CATALOG_TOKEN`           | unset                           | Secret; never logged or returned                  |

@@ -218,6 +218,54 @@ describe('SourceProvider', (): void => {
     });
   });
 
+  it('answers a literal search from indexed text and falls back to disk when the bound is zero', async (): Promise<void> => {
+    const root = await createCheckout();
+    const marker = path.join(
+      root,
+      'spark',
+      'src',
+      'main',
+      'java',
+      'org',
+      'apache',
+      'iceberg',
+      'BaseTable.java',
+    );
+    const cached = await SourceProvider.create(root);
+    const uncached = await SourceProvider.create(root, { indexMaxBytes: 0 });
+    const [cachedIndex, uncachedIndex] = await Promise.all([
+      cached.loadIndex(),
+      uncached.loadIndex(),
+    ]);
+    expect(cachedIndex.sources.size).toBe(2);
+    expect(uncachedIndex.sources.size).toBe(0);
+
+    await unlink(marker);
+
+    await expect(cached.search('search-me')).resolves.toMatchObject({ items: [{ line: 3 }] });
+    await expect(uncached.search('search-me')).rejects.toThrow(/ENOENT/u);
+  });
+
+  it('stops indexing, searching, and scanning when the caller aborts', async (): Promise<void> => {
+    const root = await createCheckout();
+    const provider = await SourceProvider.create(root);
+    const aborted = AbortSignal.abort();
+
+    await expect(provider.loadIndex(aborted)).rejects.toMatchObject({ name: 'CancelledError' });
+
+    await provider.loadIndex();
+
+    await expect(provider.search('search-me', 50, 0, aborted)).rejects.toMatchObject({
+      name: 'CancelledError',
+    });
+    await expect(
+      provider.findImplementations('org.apache.iceberg.Table', 100, 0, aborted),
+    ).rejects.toMatchObject({ name: 'CancelledError' });
+    await expect(
+      provider.getType('org.apache.iceberg.Table', 1, 10, aborted),
+    ).rejects.toMatchObject({ name: 'CancelledError' });
+  });
+
   it('does not follow directory symlinks', async (): Promise<void> => {
     const root = await createCheckout();
     const outside = await mkdtemp(path.join(tmpdir(), 'iceberg-source-outside-'));

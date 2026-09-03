@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import { DEFAULT_SOURCE_INDEX_MAX_BYTES } from './api/source-provider.js';
 import { ConfigurationError } from './shared/errors.js';
 import { DEFAULT_JAVADOC_VERSION, icebergVersionSchema } from './shared/iceberg-version.js';
 import { isLogLevel, LOG_LEVELS } from './shared/logging.js';
@@ -51,6 +52,8 @@ export interface AppConfig {
   readonly limits: LimitsConfig;
   readonly logLevel: LogLevel;
   readonly sourceDir: string | undefined;
+  /** Source text the local index may keep in memory so searches avoid reopening the checkout. */
+  readonly sourceIndexMaxBytes: number;
   readonly transport: 'http' | 'stdio';
 }
 
@@ -403,6 +406,13 @@ export async function loadConfig(
     },
     logLevel: parseLogLevel(env['ICEBERG_MCP_LOG_LEVEL']),
     sourceDir: await resolveSourceDir(env, cwd),
+    sourceIndexMaxBytes: parseInteger(
+      'ICEBERG_SOURCE_INDEX_MAX_BYTES',
+      env['ICEBERG_SOURCE_INDEX_MAX_BYTES'],
+      DEFAULT_SOURCE_INDEX_MAX_BYTES,
+      0,
+      1_073_741_824,
+    ),
     transport: transportResult.data,
   };
 }
