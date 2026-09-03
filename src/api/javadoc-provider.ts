@@ -1,6 +1,8 @@
 import { TextDecoder } from 'node:util';
 
 import type { JavadocConfig } from '../config.js';
+import type { CachedDocument } from './javadoc-cache.js';
+import { JavadocDiskCache } from './javadoc-cache.js';
 import { AsyncTtlCache } from '../shared/cache.js';
 import { BoundedFetcher } from '../shared/fetch.js';
 import { InputError, LimitError, NotFoundError, UpstreamError } from '../shared/errors.js';
@@ -34,6 +36,18 @@ function versionTtl(version: string): number {
   return version === 'nightly' ? 5 * 60_000 : 24 * 60 * 60_000;
 }
 
+/** The validators that let the host answer `304` instead of resending an unchanged body. */
+function conditionalHeaders(cached: CachedDocument): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  if (cached.etag !== undefined) {
+    headers['if-none-match'] = cached.etag;
+  }
+  if (cached.lastModified !== undefined) {
+    headers['if-modified-since'] = cached.lastModified;
+  }
+  return Object.keys(headers).length === 0 ? undefined : headers;
+}
+
 /**
  * A body the Javadoc host sent that is not valid UTF-8 is an upstream problem, not caller input: a
  * truncated transfer decodes exactly this way, so the failure is reported as retryable.
@@ -48,6 +62,7 @@ function decodeBody(body: Uint8Array, label: string): string {
 
 export class JavadocProvider {
   readonly #baseUrl: URL;
+  readonly #cache: JavadocDiskCache | undefined;
   readonly #fetcher: BoundedFetcher;
   readonly #indexMaxBytes: number;
   readonly #reporter: ErrorReporter;
@@ -76,6 +91,10 @@ export class JavadocProvider {
     this.#baseUrl = new URL(options.config.baseUrl);
     this.#indexMaxBytes = options.config.indexMaxBytes;
     this.#reporter = options.reporter ?? stderrReporter;
+    this.#cache =
+      options.config.cache === undefined
+        ? undefined
+        : new JavadocDiskCache({ config: options.config.cache, reporter: this.#reporter });
     this.#fetcher = new BoundedFetcher({
       allowedBaseUrl: this.#baseUrl,
       concurrency: 4,
@@ -103,9 +122,9 @@ export class JavadocProvider {
     return cache.getOrLoad(version, async () => {
       const root = this.rootUrl(version);
       const [packages, types, members] = await Promise.all([
-        this.#loadIndexFile(root, 'package-search-index.js', 512_000, signal),
-        this.#loadIndexFile(root, 'type-search-index.js', 4_000_000, signal),
-        this.#loadIndexFile(root, 'member-search-index.js', this.#indexMaxBytes, signal),
+        this.#loadIndexFile(root, 'package-search-index.js', 512_000, version, signal),
+        this.#loadIndexFile(root, 'type-search-index.js', 4_000_000, version, signal),
+        this.#loadIndexFile(root, 'member-search-index.js', this.#indexMaxBytes, version, signal),
       ]);
       const parseOptions = { reporter: this.#reporter };
       return {
@@ -131,14 +150,18 @@ export class JavadocProvider {
       throw new NotFoundError(`Java type not found: ${fullyQualifiedName}`);
     }
     const cache = this.#pageCache(version);
-    const documentation = await cache.getOrLoad(record.url, async () => {
-      const result = await this.#fetcher.get(new URL(record.url), {
-        acceptedContentTypes: ['text/html'],
-        maxBytes: 2_000_000,
-        signal,
-      });
-      return parseTypeDocumentation(decodeBody(result.body, 'Javadoc page'));
-    });
+    const documentation = await cache.getOrLoad(record.url, async () =>
+      parseTypeDocumentation(
+        await this.#retrieve({
+          acceptedContentTypes: ['text/html'],
+          label: 'Javadoc page',
+          maxBytes: 2_000_000,
+          signal,
+          url: new URL(record.url),
+          version,
+        }),
+      ),
+    );
     return { documentation, record };
   }
 
@@ -146,21 +169,68 @@ export class JavadocProvider {
     root: URL,
     filename: string,
     maxBytes: number,
+    version: string,
     signal: AbortSignal | undefined,
   ): Promise<string> {
     try {
-      const result = await this.#fetcher.get(new URL(filename, root), {
+      return await this.#retrieve({
         acceptedContentTypes: ['application/javascript', 'text/javascript'],
+        label: filename,
         maxBytes,
         signal,
+        url: new URL(filename, root),
+        version,
       });
-      return decodeBody(result.body, filename);
     } catch (error) {
       if (error instanceof LimitError) {
         this.#reporter.warn?.('javadoc.index.too_large', { filename, maxBytes });
       }
       throw error;
     }
+  }
+
+  /**
+   * One Javadoc document, from the on-disk cache when it is still fresh, revalidated with the stored
+   * validators when it is not, and downloaded otherwise. Only a body that downloaded, decoded, and
+   * stayed inside its byte bound is stored, so an error response is never cached.
+   */
+  async #retrieve(options: {
+    readonly acceptedContentTypes: readonly string[];
+    readonly label: string;
+    readonly maxBytes: number;
+    readonly signal: AbortSignal | undefined;
+    readonly url: URL;
+    readonly version: string;
+  }): Promise<string> {
+    const key = options.url.href;
+    const cached = await this.#cache?.read(options.version, key);
+    if (cached !== undefined && Date.now() - cached.storedAt < this.#cacheTtlMs(options.version)) {
+      return decodeBody(cached.body, options.label);
+    }
+    const conditional = cached === undefined ? undefined : conditionalHeaders(cached);
+    const result = await this.#fetcher.get(options.url, {
+      acceptedContentTypes: options.acceptedContentTypes,
+      maxBytes: options.maxBytes,
+      signal: options.signal,
+      ...(conditional === undefined ? {} : { allowNotModified: true, headers: conditional }),
+    });
+    if (result.notModified && cached !== undefined) {
+      await this.#cache?.touch(options.version, key, cached);
+      return decodeBody(cached.body, options.label);
+    }
+    const text = decodeBody(result.body, options.label);
+    await this.#cache?.write(options.version, key, {
+      body: result.body,
+      etag: result.etag,
+      lastModified: result.lastModified,
+      storedAt: Date.now(),
+    });
+    return text;
+  }
+
+  /** Nightly Javadoc is republished continuously, so it revalidates long before the configured TTL. */
+  #cacheTtlMs(version: string): number {
+    return Math.min(this.#cache?.ttlMs ?? 0, versionTtl(version));
   }
 
   #assertVersion(version: string): void {

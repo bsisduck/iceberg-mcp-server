@@ -4,6 +4,12 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import type { JavadocCacheConfig } from './api/javadoc-cache.js';
+import {
+  DEFAULT_JAVADOC_CACHE_MAX_BYTES,
+  DEFAULT_JAVADOC_CACHE_TTL_MS,
+  defaultJavadocCacheDirectory,
+} from './api/javadoc-cache.js';
 import { DEFAULT_JAVADOC_INDEX_MAX_BYTES } from './api/javadoc-provider.js';
 import { DEFAULT_SOURCE_INDEX_MAX_BYTES } from './api/source-provider.js';
 import { ConfigurationError } from './shared/errors.js';
@@ -21,6 +27,8 @@ const transportSchema = z.enum(['stdio', 'http']);
 
 export interface JavadocConfig {
   readonly baseUrl: URL;
+  /** On-disk response cache, or `undefined` when `ICEBERG_JAVADOC_CACHE=off`. */
+  readonly cache: JavadocCacheConfig | undefined;
   /** Ceiling on one downloaded Javadoc search index, applied to the large member index. */
   readonly indexMaxBytes: number;
   readonly version: string;
@@ -161,6 +169,35 @@ function parseUrl(name: string, value: string, options: { httpsOutsideLoopback: 
     throw new ConfigurationError(`${name} must use https outside loopback`);
   }
   return parsed;
+}
+
+function parseJavadocCache(env: NodeJS.ProcessEnv, cwd: string): JavadocCacheConfig | undefined {
+  const mode = optionalValue(env['ICEBERG_JAVADOC_CACHE']) ?? 'on';
+  if (mode === 'off') {
+    return undefined;
+  }
+  if (mode !== 'on') {
+    throw new ConfigurationError('ICEBERG_JAVADOC_CACHE must be on or off');
+  }
+  const configured = optionalValue(env['ICEBERG_JAVADOC_CACHE_DIR']);
+  return {
+    directory:
+      configured === undefined ? defaultJavadocCacheDirectory() : path.resolve(cwd, configured),
+    maxBytes: parseInteger(
+      'ICEBERG_JAVADOC_CACHE_MAX_BYTES',
+      env['ICEBERG_JAVADOC_CACHE_MAX_BYTES'],
+      DEFAULT_JAVADOC_CACHE_MAX_BYTES,
+      1_000_000,
+      10_737_418_240,
+    ),
+    ttlMs: parseInteger(
+      'ICEBERG_JAVADOC_CACHE_TTL_MS',
+      env['ICEBERG_JAVADOC_CACHE_TTL_MS'],
+      DEFAULT_JAVADOC_CACHE_TTL_MS,
+      0,
+      31_536_000_000,
+    ),
+  };
 }
 
 function parseJavadocBaseUrl(value: string | undefined): URL {
@@ -389,6 +426,7 @@ export async function loadConfig(
     },
     javadoc: {
       baseUrl: parseJavadocBaseUrl(env['ICEBERG_JAVADOC_BASE_URL']),
+      cache: parseJavadocCache(env, cwd),
       indexMaxBytes: parseInteger(
         'ICEBERG_JAVADOC_INDEX_MAX_BYTES',
         env['ICEBERG_JAVADOC_INDEX_MAX_BYTES'],

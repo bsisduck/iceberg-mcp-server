@@ -127,6 +127,7 @@ function config(sourceDir?: string): AppConfig {
     },
     javadoc: {
       baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+      cache: undefined,
       indexMaxBytes: 32_000_000,
       version: '1.0.0',
     },

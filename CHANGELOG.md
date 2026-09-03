@@ -68,6 +68,17 @@ The project is licensed under the MIT License.
 - The Javadoc search-index memory ceiling is configurable as `ICEBERG_JAVADOC_INDEX_MAX_BYTES`
   instead of a 32 MB literal, and an index that exceeds it now writes a `javadoc.index.too_large`
   warning naming the file and the bound before the `LimitError` surfaces (F46).
+- Javadoc downloads are now cached on disk, so a restart no longer re-downloads the roughly 32 MB
+  member index (F34). Entries are keyed by version and URL under `ICEBERG_JAVADOC_CACHE_DIR`
+  (default `~/.cache/iceberg-mcp-server/javadoc`), store the body with its `ETag`/`Last-Modified`,
+  and are written to a temporary file and renamed into place. Past `ICEBERG_JAVADOC_CACHE_TTL_MS`
+  (default 24 h) an entry is revalidated with `If-None-Match`/`If-Modified-Since` and a `304` reuses
+  the stored body; `nightly` still revalidates after five minutes. The directory is held under
+  `ICEBERG_JAVADOC_CACHE_MAX_BYTES` (default 256 MB) by dropping the least recently written entries,
+  error responses are never stored, and `ICEBERG_JAVADOC_CACHE=off` disables it. A directory that
+  cannot be written logs one `javadoc.cache.disabled` warning and the server continues without a
+  cache. `BoundedFetcher` gained `headers` and `allowNotModified` options and now reports `etag`,
+  `lastModified`, and `notModified` on its result.
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the

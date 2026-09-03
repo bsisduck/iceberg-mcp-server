@@ -22,6 +22,45 @@ afterEach(async (): Promise<void> => {
 });
 
 describe('loadConfig', (): void => {
+  it('configures the Javadoc disk cache and the index bounds', async (): Promise<void> => {
+    const cwd = await temporaryDirectory();
+
+    const defaults = await loadConfig({}, cwd);
+    const custom = await loadConfig(
+      {
+        ICEBERG_JAVADOC_CACHE_DIR: 'javadoc-cache',
+        ICEBERG_JAVADOC_CACHE_MAX_BYTES: '2000000',
+        ICEBERG_JAVADOC_CACHE_TTL_MS: '60000',
+        ICEBERG_JAVADOC_INDEX_MAX_BYTES: '48000000',
+        ICEBERG_SOURCE_INDEX_MAX_BYTES: '0',
+      },
+      cwd,
+    );
+    const disabled = await loadConfig({ ICEBERG_JAVADOC_CACHE: 'off' }, cwd);
+
+    expect(defaults.javadoc.indexMaxBytes).toBe(32_000_000);
+    expect(defaults.sourceIndexMaxBytes).toBe(64_000_000);
+    expect(defaults.javadoc.cache).toMatchObject({
+      maxBytes: 268_435_456,
+      ttlMs: 86_400_000,
+    });
+    expect(
+      defaults.javadoc.cache?.directory.endsWith(path.join('iceberg-mcp-server', 'javadoc')),
+    ).toBe(true);
+    expect(custom.javadoc.cache).toEqual({
+      directory: path.join(cwd, 'javadoc-cache'),
+      maxBytes: 2_000_000,
+      ttlMs: 60_000,
+    });
+    expect(custom.javadoc.indexMaxBytes).toBe(48_000_000);
+    expect(custom.sourceIndexMaxBytes).toBe(0);
+    expect(disabled.javadoc.cache).toBeUndefined();
+    await expect(loadConfig({ ICEBERG_JAVADOC_CACHE: 'yes' }, cwd)).rejects.toThrow(/on or off/u);
+    await expect(loadConfig({ ICEBERG_JAVADOC_INDEX_MAX_BYTES: '10' }, cwd)).rejects.toThrow(
+      /must be between/u,
+    );
+  });
+
   it('loads safe defaults without optional integrations', async (): Promise<void> => {
     const cwd = await temporaryDirectory();
     const config = await loadConfig({}, cwd);

@@ -5,6 +5,10 @@ import { Semaphore } from './semaphore.js';
 
 export interface BoundedFetchOptions {
   readonly acceptedContentTypes: readonly string[];
+  /** Return a `304` as a result instead of treating it as an unusable redirect status. */
+  readonly allowNotModified?: boolean | undefined;
+  /** Extra request headers, used for the conditional `if-none-match`/`if-modified-since` pair. */
+  readonly headers?: Readonly<Record<string, string>> | undefined;
   readonly maxBytes: number;
   readonly retries?: number | undefined;
   readonly signal?: AbortSignal | undefined;
@@ -13,6 +17,10 @@ export interface BoundedFetchOptions {
 export interface BoundedFetchResult {
   readonly body: Uint8Array;
   readonly contentType: string;
+  readonly etag: string | undefined;
+  readonly lastModified: string | undefined;
+  /** `true` when the upstream answered `304`; `body` is then empty and the caller reuses its copy. */
+  readonly notModified: boolean;
   readonly retrievedAt: Date;
   readonly url: URL;
 }
@@ -144,10 +152,23 @@ export class BoundedFetcher {
           headers: {
             accept: options.acceptedContentTypes.join(', '),
             'user-agent': this.#userAgent,
+            ...options.headers,
           },
           redirect: 'manual',
           signal: combinedSignal,
         });
+        if (response.status === 304 && options.allowNotModified === true) {
+          cancelBody(response);
+          return {
+            body: new Uint8Array(),
+            contentType: response.headers.get('content-type') ?? '',
+            etag: response.headers.get('etag') ?? undefined,
+            lastModified: response.headers.get('last-modified') ?? undefined,
+            notModified: true,
+            retrievedAt: new Date(),
+            url: current,
+          };
+        }
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location');
           if (location === null || redirects === 3) {
@@ -181,7 +202,15 @@ export class BoundedFetcher {
           );
         }
         const body = await readBounded(response, options.maxBytes);
-        return { body, contentType, retrievedAt: new Date(), url: current };
+        return {
+          body,
+          contentType,
+          etag: response.headers.get('etag') ?? undefined,
+          lastModified: response.headers.get('last-modified') ?? undefined,
+          notModified: false,
+          retrievedAt: new Date(),
+          url: current,
+        };
       }
       throw new UpstreamError('Upstream redirect limit exceeded', 502, false);
     } catch (error) {

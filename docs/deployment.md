@@ -127,6 +127,29 @@ Credential vending results expose prefixes and configuration key names only. Cre
 remote-signing results are not returned to the model. See [security.md](security.md) for the threat
 model and residual risks.
 
+## Javadoc disk cache
+
+Downloaded Javadoc index files and type pages are cached on disk, so a restart does not re-download
+the roughly 32 MB member index. Entries are keyed by version and URL and stored one per file,
+written to a temporary name and renamed into place.
+
+| Variable                          | Default                               | Purpose                                       |
+| --------------------------------- | ------------------------------------- | --------------------------------------------- |
+| `ICEBERG_JAVADOC_CACHE`           | `on`                                  | `off` disables the disk cache entirely        |
+| `ICEBERG_JAVADOC_CACHE_DIR`       | `~/.cache/iceberg-mcp-server/javadoc` | Cache location; relative paths resolve on cwd |
+| `ICEBERG_JAVADOC_CACHE_TTL_MS`    | `86400000`                            | Age after which an entry is revalidated       |
+| `ICEBERG_JAVADOC_CACHE_MAX_BYTES` | `268435456`                           | Directory ceiling; oldest entries are dropped |
+
+- After the TTL, the entry is revalidated with `If-None-Match`/`If-Modified-Since`; a `304` reuses
+  the stored body and refreshes its age without downloading it again.
+- `nightly` revalidates after five minutes regardless of a longer configured TTL.
+- Only a body that downloaded, decoded, and stayed inside its byte bound is stored: error responses
+  are never cached.
+- The cache is an optimization, never a dependency. If the directory cannot be written, the server
+  logs one `javadoc.cache.disabled` warning and continues without it.
+- To clear it, delete the directory: `rm -rf ~/.cache/iceberg-mcp-server/javadoc`. It is rebuilt on
+  demand. Run with `ICEBERG_JAVADOC_CACHE=off` where the filesystem is read-only or ephemeral.
+
 ## Capacity and limits
 
 - HTTP requests are rejected before MCP dispatch above `ICEBERG_MCP_MAX_REQUEST_BYTES`.
@@ -143,19 +166,20 @@ instead of truncating valid JSON. Narrow the request or reduce the upstream page
 
 ## Troubleshooting
 
-| Symptom                                   | Likely cause and action                                                                                                                                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Exits with `requires Node.js`             | The runtime is older than the published `engines.node` range; upgrade Node or point the client at a newer runtime.                                                                         |
-| Source tool returns a configuration error | Set `ICEBERG_SOURCE_DIR` to a readable Iceberg checkout containing `api/src/main/java`.                                                                                                    |
-| Server exits while configuring a catalog  | Verify `/v1/config`, TLS trust, outbound auth, response content type, and warehouse.                                                                                                       |
-| Expected catalog tool is missing          | Inspect `iceberg_catalog_get_config`; the endpoint must be advertised/defaulted and mutations may need opt-in.                                                                             |
-| HTTP startup rejects a non-loopback host  | Configure both an inbound auth token and an explicit exact origin list.                                                                                                                    |
-| HTTP returns 401                          | Send the configured inbound bearer token; it is separate from the outbound catalog token.                                                                                                  |
-| HTTP returns 403 or Host validation fails | Use the configured public origin/host and preserve Host through the proxy. Wildcard origins are not supported.                                                                             |
-| `LimitError`                              | Retry with a smaller page, member limit, or source window.                                                                                                                                 |
-| Cursor mismatch                           | Reuse the cursor with exactly the same query inputs, or omit it to restart pagination.                                                                                                     |
-| Older Javadoc fails to load               | Confirm that the published version contains the three standard search index files and is under the configured root.                                                                        |
-| OAuth repeatedly reloads                  | Check `expires_in`: it must be an integer of at least 1, a missing value defaults to one hour, and a token is renewed once it is inside its refresh window of `min(60 s, expires_in / 2)`. |
+| Symptom                                    | Likely cause and action                                                                                                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Exits with `requires Node.js`              | The runtime is older than the published `engines.node` range; upgrade Node or point the client at a newer runtime.                                                                         |
+| Source tool returns a configuration error  | Set `ICEBERG_SOURCE_DIR` to a readable Iceberg checkout containing `api/src/main/java`.                                                                                                    |
+| Repeated `javadoc.cache.disabled` warnings | The cache directory is not writable; point `ICEBERG_JAVADOC_CACHE_DIR` somewhere writable or set `ICEBERG_JAVADOC_CACHE=off`.                                                              |
+| Server exits while configuring a catalog   | Verify `/v1/config`, TLS trust, outbound auth, response content type, and warehouse.                                                                                                       |
+| Expected catalog tool is missing           | Inspect `iceberg_catalog_get_config`; the endpoint must be advertised/defaulted and mutations may need opt-in.                                                                             |
+| HTTP startup rejects a non-loopback host   | Configure both an inbound auth token and an explicit exact origin list.                                                                                                                    |
+| HTTP returns 401                           | Send the configured inbound bearer token; it is separate from the outbound catalog token.                                                                                                  |
+| HTTP returns 403 or Host validation fails  | Use the configured public origin/host and preserve Host through the proxy. Wildcard origins are not supported.                                                                             |
+| `LimitError`                               | Retry with a smaller page, member limit, or source window.                                                                                                                                 |
+| Cursor mismatch                            | Reuse the cursor with exactly the same query inputs, or omit it to restart pagination.                                                                                                     |
+| Older Javadoc fails to load                | Confirm that the published version contains the three standard search index files and is under the configured root.                                                                        |
+| OAuth repeatedly reloads                   | Check `expires_in`: it must be an integer of at least 1, a missing value defaults to one hour, and a token is renewed once it is inside its refresh window of `min(60 s, expires_in / 2)`. |
 
 For a deployment smoke test, first run `npm run check`, then start without a catalog and inspect MCP
 `tools/list`, `resources/templates/list`, and `prompts/list`. Add the catalog only after the

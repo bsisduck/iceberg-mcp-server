@@ -1,10 +1,64 @@
-import { describe, expect, it, vi } from 'vitest';
+import { chmod, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { JavadocCacheConfig } from '../../src/api/javadoc-cache.js';
 import { JavadocProvider } from '../../src/api/javadoc-provider.js';
 
-function javascript(body: string): Response {
-  return new Response(body, { headers: { 'content-type': 'application/javascript' } });
+const temporaryDirectories: string[] = [];
+
+function javascript(body: string, headers: Record<string, string> = {}): Response {
+  return new Response(body, {
+    headers: { 'content-type': 'application/javascript', ...headers },
+  });
 }
+
+const indexBodies = new Map<string, string>([
+  ['package-search-index.js', 'packageSearchIndex = [{"l":"org.apache.iceberg"}];'],
+  ['type-search-index.js', 'typeSearchIndex = [{"p":"org.apache.iceberg","l":"Table"}];'],
+  [
+    'member-search-index.js',
+    'memberSearchIndex = [{"p":"org.apache.iceberg","c":"Table","l":"schema()"}];',
+  ],
+]);
+
+/** Serves the three index files with an `ETag`, answering `304` once a validator is presented. */
+function indexHost(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
+  return vi.fn<typeof globalThis.fetch>((input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const filename = url.pathname.split('/').at(-1) ?? '';
+    const body = indexBodies.get(filename);
+    if (body === undefined) {
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    }
+    const headers = new Headers(init?.headers);
+    if (headers.get('if-none-match') === `"${filename}"`) {
+      return Promise.resolve(
+        new Response(null, { status: 304, headers: { etag: `"${filename}"` } }),
+      );
+    }
+    return Promise.resolve(javascript(`${body}updateSearchResults();`, { etag: `"${filename}"` }));
+  });
+}
+
+async function cacheDirectory(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'iceberg-javadoc-cache-'));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+function cacheConfig(directory: string, ttlMs = 60_000): JavadocCacheConfig {
+  return { directory, maxBytes: 1_000_000, ttlMs };
+}
+
+afterEach(async (): Promise<void> => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    await chmod(directory, 0o700).catch(() => undefined);
+    await rm(directory, { force: true, recursive: true });
+  }
+});
 
 describe('JavadocProvider', (): void => {
   it('shares concurrent immutable index loads and caches type pages', async (): Promise<void> => {
@@ -40,6 +94,7 @@ describe('JavadocProvider', (): void => {
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: undefined,
         indexMaxBytes: 32_000_000,
         version: '1.11.0',
       },
@@ -75,6 +130,7 @@ describe('JavadocProvider', (): void => {
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: undefined,
         indexMaxBytes: 32_000_000,
         version: '1.11.0',
       },
@@ -90,7 +146,7 @@ describe('JavadocProvider', (): void => {
   });
 
   it('warns and fails when a search index exceeds the configured ceiling', async (): Promise<void> => {
-    const warn = vi.fn();
+    const warn = vi.fn<(event: string, details: Record<string, unknown>) => void>();
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         javascript('memberSearchIndex = [{"p":"org.apache.iceberg","c":"Table","l":"schema()"}];'),
@@ -99,6 +155,7 @@ describe('JavadocProvider', (): void => {
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: undefined,
         indexMaxBytes: 16,
         version: '1.11.0',
       },
@@ -114,11 +171,101 @@ describe('JavadocProvider', (): void => {
     });
   });
 
+  it('serves a fresh index from disk across provider restarts', async (): Promise<void> => {
+    const directory = await cacheDirectory();
+    const fetch = indexHost();
+    const options = {
+      config: {
+        baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: cacheConfig(directory),
+        indexMaxBytes: 32_000_000,
+        version: '1.11.0',
+      },
+      fetch,
+      requestTimeoutMs: 1_000,
+    };
+
+    await new JavadocProvider(options).loadIndex('1.11.0');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect((await readdir(directory)).filter((name) => name.endsWith('.cache'))).toHaveLength(3);
+
+    const restarted = await new JavadocProvider(options).loadIndex('1.11.0');
+    expect(restarted.types[0]?.fullyQualifiedName).toBe('org.apache.iceberg.Table');
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('revalidates a stale entry and reuses the stored body on 304', async (): Promise<void> => {
+    const directory = await cacheDirectory();
+    const fetch = indexHost();
+    const options = {
+      config: {
+        baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: cacheConfig(directory, 0),
+        indexMaxBytes: 32_000_000,
+        version: '1.11.0',
+      },
+      fetch,
+      requestTimeoutMs: 1_000,
+    };
+
+    await new JavadocProvider(options).loadIndex('1.11.0');
+    const revalidated = await new JavadocProvider(options).loadIndex('1.11.0');
+
+    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(revalidated.members[0]?.label).toBe('schema()');
+    const conditional = fetch.mock.calls.filter(
+      ([, init]) => new Headers(init?.headers).get('if-none-match') !== null,
+    );
+    expect(conditional).toHaveLength(3);
+  });
+
+  it('writes nothing when the cache is disabled', async (): Promise<void> => {
+    const directory = await cacheDirectory();
+    const fetch = indexHost();
+
+    await new JavadocProvider({
+      config: {
+        baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: undefined,
+        indexMaxBytes: 32_000_000,
+        version: '1.11.0',
+      },
+      fetch,
+      requestTimeoutMs: 1_000,
+    }).loadIndex('1.11.0');
+
+    expect(await readdir(directory)).toHaveLength(0);
+  });
+
+  it('warns once and keeps serving when the cache directory cannot be written', async (): Promise<void> => {
+    const directory = await cacheDirectory();
+    await chmod(directory, 0o500);
+    const warn = vi.fn<(event: string, details: Record<string, unknown>) => void>();
+    const fetch = indexHost();
+
+    const index = await new JavadocProvider({
+      config: {
+        baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: cacheConfig(path.join(directory, 'javadoc')),
+        indexMaxBytes: 32_000_000,
+        version: '1.11.0',
+      },
+      fetch,
+      reporter: { report: vi.fn(), warn },
+      requestTimeoutMs: 1_000,
+    }).loadIndex('1.11.0');
+
+    expect(index.packages[0]?.name).toBe('org.apache.iceberg');
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[0]).toBe('javadoc.cache.disabled');
+  });
+
   it('rejects unbounded version identifiers before fetching', async (): Promise<void> => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        cache: undefined,
         indexMaxBytes: 32_000_000,
         version: '1.11.0',
       },

@@ -73,6 +73,7 @@ src/
     http.ts                  current stateless HTTP serving entry
     stdio.ts                 negotiated stdio serving entry
   api/
+    javadoc-cache.ts         on-disk response cache with conditional revalidation
     javadoc-provider.ts      index and HTML retrieval
     javadoc-parser.ts        safe JS-index and HTML parsing
     source-provider.ts       canonical local source index
@@ -134,6 +135,18 @@ negatively cached briefly to avoid retry storms; successful indexes use a bounde
 count. Individual HTML pages have separate byte and TTL limits. One search index may not exceed
 `ICEBERG_JAVADOC_INDEX_MAX_BYTES` (32 MB by default, the size of Iceberg's member index); crossing
 it fails the load and writes a `javadoc.index.too_large` warning naming the file and the bound.
+
+Behind the in-memory caches sits an optional on-disk cache, so a restart does not re-download the
+member index. One entry is one file — a single-line JSON header carrying the version, URL,
+`ETag`/`Last-Modified` and body length, then the body — written to a temporary name and renamed into
+place, so a reader never sees a partial entry. Past `ICEBERG_JAVADOC_CACHE_TTL_MS` the entry is
+revalidated conditionally and a `304` reuses the stored body; `nightly` revalidates after five
+minutes whatever the configured TTL. Only a body that downloaded, decoded, and stayed inside its
+byte bound is stored, so error responses are never cached. The directory is kept under
+`ICEBERG_JAVADOC_CACHE_MAX_BYTES` by dropping the least recently written entries. The cache is an
+optimization, never a dependency: a directory that cannot be written disables it for the process
+after one `javadoc.cache.disabled` warning, and an unreadable entry is a miss. See
+[deployment.md](deployment.md) for operating it.
 
 ### Source provider
 
@@ -322,6 +335,10 @@ classification reason and source.
 | `ICEBERG_JAVADOC_VERSION`         | `1.11.0`                        | Semver or `nightly`                               |
 | `ICEBERG_JAVADOC_BASE_URL`        | official Iceberg Javadoc origin | HTTPS; operator-only; redirects revalidated       |
 | `ICEBERG_JAVADOC_INDEX_MAX_BYTES` | `32000000`                      | 1 MB-256 MB; applied to the member index          |
+| `ICEBERG_JAVADOC_CACHE`           | `on`                            | `on` or `off`                                     |
+| `ICEBERG_JAVADOC_CACHE_DIR`       | `~/.cache/iceberg-mcp-server/…` | Resolved against the working directory            |
+| `ICEBERG_JAVADOC_CACHE_TTL_MS`    | `86400000`                      | 0-1 year; nightly revalidates after five minutes  |
+| `ICEBERG_JAVADOC_CACHE_MAX_BYTES` | `268435456`                     | 1 MB-10 GB; oldest entries evicted first          |
 | `ICEBERG_SOURCE_DIR`              | sibling `../iceberg` when valid | Canonical readable Iceberg checkout               |
 | `ICEBERG_SOURCE_INDEX_MAX_BYTES`  | `64000000`                      | 0-1 GiB of indexed source text held in memory     |
 | `ICEBERG_CATALOG_URI`             | unset                           | Absolute HTTP(S); HTTPS required outside loopback |
