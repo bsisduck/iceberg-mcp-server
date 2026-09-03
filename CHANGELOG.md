@@ -69,6 +69,9 @@ The project is licensed under the MIT License.
   or a hostname pattern. `::ffff:127.0.0.1` and uncompressed spellings of `::1` are now classified
   as loopback, so configuration, the loopback rules, and the bind all agree. IPv6 bind addresses are
   re-bracketed for `Host` header comparison.
+- `ICEBERG_JAVADOC_VERSION`, `ICEBERG_JAVADOC_BASE_URL`, and `ICEBERG_MCP_TRANSPORT` now treat a
+  blank value as unset, like every other variable, instead of failing startup. A client `env` map
+  that carries an empty entry falls back to the documented default.
 
 ### Removed
 

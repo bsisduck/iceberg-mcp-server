@@ -170,6 +170,9 @@ troubleshooting.
 | `ICEBERG_REQUEST_TIMEOUT_MS`       | `15000`                                   | Upstream timeout, 1,000 to 120,000 ms        |
 | `ICEBERG_MCP_LOG_LEVEL`            | `info`                                    | stderr detail: `error`, `info`, or `debug`   |
 
+Every variable treats a blank value as unset and falls back to its default, so an empty entry in a
+client `env` map is not a startup error.
+
 `_FILE` is available for the three secret values and is preferred in deployed environments.
 Supplying both the direct value and its file form is an error. Secrets are loaded at startup, so
 restart the process after rotating a mounted secret.

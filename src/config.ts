@@ -158,9 +158,13 @@ function parseUrl(name: string, value: string, options: { httpsOutsideLoopback: 
 }
 
 function parseJavadocBaseUrl(value: string | undefined): URL {
-  const parsed = parseUrl('ICEBERG_JAVADOC_BASE_URL', value ?? DEFAULT_JAVADOC_BASE_URL, {
-    httpsOutsideLoopback: true,
-  });
+  const parsed = parseUrl(
+    'ICEBERG_JAVADOC_BASE_URL',
+    optionalValue(value) ?? DEFAULT_JAVADOC_BASE_URL,
+    {
+      httpsOutsideLoopback: true,
+    },
+  );
   if (parsed.protocol !== 'https:') {
     throw new ConfigurationError('ICEBERG_JAVADOC_BASE_URL must use https');
   }
@@ -289,13 +293,17 @@ export async function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd(),
 ): Promise<AppConfig> {
+  // Every variable treats a blank value as unset, so a cleared entry in a client env map falls back
+  // to the default instead of failing startup.
   const versionResult = icebergVersionSchema.safeParse(
-    env['ICEBERG_JAVADOC_VERSION'] ?? DEFAULT_JAVADOC_VERSION,
+    optionalValue(env['ICEBERG_JAVADOC_VERSION']) ?? DEFAULT_JAVADOC_VERSION,
   );
   if (!versionResult.success) {
     throw new ConfigurationError('ICEBERG_JAVADOC_VERSION must be a release or nightly');
   }
-  const transportResult = transportSchema.safeParse(env['ICEBERG_MCP_TRANSPORT'] ?? 'stdio');
+  const transportResult = transportSchema.safeParse(
+    optionalValue(env['ICEBERG_MCP_TRANSPORT']) ?? 'stdio',
+  );
   if (!transportResult.success) {
     throw new ConfigurationError('ICEBERG_MCP_TRANSPORT must be stdio or http');
   }

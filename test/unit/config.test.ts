@@ -309,6 +309,50 @@ describe('loadConfig', (): void => {
     expect(hostHeaderName('catalog-host.example.test')).toBe('catalog-host.example.test');
   });
 
+  it('treats a blank value as unset for every variable', async (): Promise<void> => {
+    const cwd = await temporaryDirectory();
+    const blank: NodeJS.ProcessEnv = {
+      ICEBERG_CATALOG_ALLOW_MUTATIONS: '',
+      ICEBERG_CATALOG_TOKEN: '',
+      ICEBERG_CATALOG_URI: '',
+      ICEBERG_CATALOG_WAREHOUSE: '',
+      ICEBERG_JAVADOC_BASE_URL: '',
+      ICEBERG_JAVADOC_VERSION: '',
+      ICEBERG_MAX_RESPONSE_CHARS: '',
+      ICEBERG_MCP_ALLOWED_ORIGINS: '',
+      ICEBERG_MCP_AUTH_TOKEN: '',
+      ICEBERG_MCP_HOST: '',
+      ICEBERG_MCP_LOG_LEVEL: '',
+      ICEBERG_MCP_MAX_REQUEST_BYTES: '',
+      ICEBERG_MCP_PORT: '',
+      ICEBERG_MCP_TRANSPORT: '',
+      ICEBERG_OAUTH2_CREDENTIAL: '',
+      ICEBERG_OAUTH2_URI: '',
+      ICEBERG_REQUEST_TIMEOUT_MS: '',
+      ICEBERG_SOURCE_DIR: '',
+    };
+
+    const config = await loadConfig(blank, cwd);
+
+    // The three that used to raise instead of falling back.
+    expect(config.javadoc.version).toBe('1.11.0');
+    expect(config.javadoc.baseUrl.href).toBe('https://iceberg.apache.org/javadoc/');
+    expect(config.transport).toBe('stdio');
+    // The variables that already accepted a blank value keep doing so.
+    expect(config.logLevel).toBe('info');
+    expect(config.sourceDir).toBeUndefined();
+    expect(config.catalog).toMatchObject({
+      allowMutations: false,
+      oauth2Credential: undefined,
+      oauth2Uri: undefined,
+      token: undefined,
+      uri: undefined,
+      warehouse: undefined,
+    });
+    expect(config.http).toMatchObject({ authToken: undefined, host: '127.0.0.1', port: 3000 });
+    expect(config.limits).toEqual({ maxResponseChars: 30_000, requestTimeoutMs: 15_000 });
+  });
+
   it('caps the configured origin count', async (): Promise<void> => {
     const cwd = await temporaryDirectory();
     const origins = Array.from(
