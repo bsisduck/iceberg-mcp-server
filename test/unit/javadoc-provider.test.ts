@@ -40,6 +40,7 @@ describe('JavadocProvider', (): void => {
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        indexMaxBytes: 32_000_000,
         version: '1.11.0',
       },
       fetch,
@@ -74,6 +75,7 @@ describe('JavadocProvider', (): void => {
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        indexMaxBytes: 32_000_000,
         version: '1.11.0',
       },
       fetch,
@@ -87,11 +89,37 @@ describe('JavadocProvider', (): void => {
     });
   });
 
+  it('warns and fails when a search index exceeds the configured ceiling', async (): Promise<void> => {
+    const warn = vi.fn();
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        javascript('memberSearchIndex = [{"p":"org.apache.iceberg","c":"Table","l":"schema()"}];'),
+      ),
+    );
+    const provider = new JavadocProvider({
+      config: {
+        baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        indexMaxBytes: 16,
+        version: '1.11.0',
+      },
+      fetch,
+      reporter: { report: vi.fn(), warn },
+      requestTimeoutMs: 1_000,
+    });
+
+    await expect(provider.loadIndex('1.11.0')).rejects.toMatchObject({ name: 'LimitError' });
+    expect(warn).toHaveBeenCalledWith('javadoc.index.too_large', {
+      filename: 'member-search-index.js',
+      maxBytes: 16,
+    });
+  });
+
   it('rejects unbounded version identifiers before fetching', async (): Promise<void> => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const provider = new JavadocProvider({
       config: {
         baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+        indexMaxBytes: 32_000_000,
         version: '1.11.0',
       },
       fetch,

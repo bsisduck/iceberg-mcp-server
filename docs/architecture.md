@@ -131,7 +131,9 @@ since that is what a truncated transfer looks like.
 
 Each version cache is immutable after load. Concurrent loads share one promise. Failures are
 negatively cached briefly to avoid retry storms; successful indexes use a bounded TTL and entry
-count. Individual HTML pages have separate byte and TTL limits.
+count. Individual HTML pages have separate byte and TTL limits. One search index may not exceed
+`ICEBERG_JAVADOC_INDEX_MAX_BYTES` (32 MB by default, the size of Iceberg's member index); crossing
+it fails the load and writes a `javadoc.index.too_large` warning naming the file and the bound.
 
 ### Source provider
 
@@ -319,6 +321,7 @@ classification reason and source.
 | --------------------------------- | ------------------------------- | ------------------------------------------------- |
 | `ICEBERG_JAVADOC_VERSION`         | `1.11.0`                        | Semver or `nightly`                               |
 | `ICEBERG_JAVADOC_BASE_URL`        | official Iceberg Javadoc origin | HTTPS; operator-only; redirects revalidated       |
+| `ICEBERG_JAVADOC_INDEX_MAX_BYTES` | `32000000`                      | 1 MB-256 MB; applied to the member index          |
 | `ICEBERG_SOURCE_DIR`              | sibling `../iceberg` when valid | Canonical readable Iceberg checkout               |
 | `ICEBERG_SOURCE_INDEX_MAX_BYTES`  | `64000000`                      | 0-1 GiB of indexed source text held in memory     |
 | `ICEBERG_CATALOG_URI`             | unset                           | Absolute HTTP(S); HTTPS required outside loopback |

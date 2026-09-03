@@ -36,6 +36,7 @@ function config(transport: 'http' | 'stdio'): AppConfig {
     },
     javadoc: {
       baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+      indexMaxBytes: 32_000_000,
       version: '1.11.0',
     },
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 1_000 },

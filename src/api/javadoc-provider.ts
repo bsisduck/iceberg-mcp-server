@@ -3,7 +3,7 @@ import { TextDecoder } from 'node:util';
 import type { JavadocConfig } from '../config.js';
 import { AsyncTtlCache } from '../shared/cache.js';
 import { BoundedFetcher } from '../shared/fetch.js';
-import { InputError, NotFoundError, UpstreamError } from '../shared/errors.js';
+import { InputError, LimitError, NotFoundError, UpstreamError } from '../shared/errors.js';
 import type { ErrorReporter } from '../shared/logging.js';
 import { stderrReporter } from '../shared/logging.js';
 import { isIcebergVersion } from '../shared/iceberg-version.js';
@@ -17,6 +17,11 @@ import {
 import type { JavadocIndex, TypeDocumentation, TypeRecord } from './types.js';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
+/**
+ * Ceiling on one downloaded search index. Iceberg's member index is around 32 MB, which is what the
+ * default admits; `ICEBERG_JAVADOC_INDEX_MAX_BYTES` moves it for a fork with a larger API surface.
+ */
+export const DEFAULT_JAVADOC_INDEX_MAX_BYTES = 32_000_000;
 
 export interface JavadocProviderOptions {
   readonly config: JavadocConfig;
@@ -44,6 +49,7 @@ function decodeBody(body: Uint8Array, label: string): string {
 export class JavadocProvider {
   readonly #baseUrl: URL;
   readonly #fetcher: BoundedFetcher;
+  readonly #indexMaxBytes: number;
   readonly #reporter: ErrorReporter;
   readonly #nightlyIndexCache = new AsyncTtlCache<JavadocIndex>({
     maxEntries: 1,
@@ -68,6 +74,7 @@ export class JavadocProvider {
 
   public constructor(options: JavadocProviderOptions) {
     this.#baseUrl = new URL(options.config.baseUrl);
+    this.#indexMaxBytes = options.config.indexMaxBytes;
     this.#reporter = options.reporter ?? stderrReporter;
     this.#fetcher = new BoundedFetcher({
       allowedBaseUrl: this.#baseUrl,
@@ -98,7 +105,7 @@ export class JavadocProvider {
       const [packages, types, members] = await Promise.all([
         this.#loadIndexFile(root, 'package-search-index.js', 512_000, signal),
         this.#loadIndexFile(root, 'type-search-index.js', 4_000_000, signal),
-        this.#loadIndexFile(root, 'member-search-index.js', 32_000_000, signal),
+        this.#loadIndexFile(root, 'member-search-index.js', this.#indexMaxBytes, signal),
       ]);
       const parseOptions = { reporter: this.#reporter };
       return {
@@ -141,12 +148,19 @@ export class JavadocProvider {
     maxBytes: number,
     signal: AbortSignal | undefined,
   ): Promise<string> {
-    const result = await this.#fetcher.get(new URL(filename, root), {
-      acceptedContentTypes: ['application/javascript', 'text/javascript'],
-      maxBytes,
-      signal,
-    });
-    return decodeBody(result.body, filename);
+    try {
+      const result = await this.#fetcher.get(new URL(filename, root), {
+        acceptedContentTypes: ['application/javascript', 'text/javascript'],
+        maxBytes,
+        signal,
+      });
+      return decodeBody(result.body, filename);
+    } catch (error) {
+      if (error instanceof LimitError) {
+        this.#reporter.warn?.('javadoc.index.too_large', { filename, maxBytes });
+      }
+      throw error;
+    }
   }
 
   #assertVersion(version: string): void {

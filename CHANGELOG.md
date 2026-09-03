@@ -65,6 +65,9 @@ The project is licensed under the MIT License.
   `warn(event, details)` method, implemented by `createStderrReporter` as a `level: "warn"` stderr
   line and suppressed by `ICEBERG_MCP_LOG_LEVEL=error`; `createServices` now builds the Javadoc
   provider's reporter from the configured log level.
+- The Javadoc search-index memory ceiling is configurable as `ICEBERG_JAVADOC_INDEX_MAX_BYTES`
+  instead of a 32 MB literal, and an index that exceeds it now writes a `javadoc.index.too_large`
+  warning naming the file and the bound before the `LimitError` surfaces (F46).
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the

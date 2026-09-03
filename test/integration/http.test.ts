@@ -42,6 +42,7 @@ function testConfig(overrides: Partial<AppConfig['http']> = {}): AppConfig {
     },
     javadoc: {
       baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+      indexMaxBytes: 32_000_000,
       version: '1.11.0',
     },
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 15_000 },
@@ -415,7 +416,7 @@ describe('HTTP transport', (): void => {
     const configured = testConfig();
     const handle = await start({
       ...configured,
-      javadoc: { baseUrl, version: '1.11.0' },
+      javadoc: { baseUrl, indexMaxBytes: 32_000_000, version: '1.11.0' },
       sourceDir,
     });
     const calls: readonly [string, Record<string, unknown>][] = [
@@ -610,7 +611,7 @@ describe('HTTP transport', (): void => {
     const configured = testConfig();
     const handle = await start({
       ...configured,
-      javadoc: { baseUrl, version: '1.11.0' },
+      javadoc: { baseUrl, indexMaxBytes: 32_000_000, version: '1.11.0' },
     });
 
     const packageResponse = await mcpPost(handle.address, {

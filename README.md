@@ -154,6 +154,7 @@ troubleshooting.
 | ---------------------------------- | ----------------------------------------- | -------------------------------------------- |
 | `ICEBERG_JAVADOC_VERSION`          | `1.11.0`                                  | Default release semver or `nightly`          |
 | `ICEBERG_JAVADOC_BASE_URL`         | official Iceberg Javadoc root             | HTTPS operator-controlled root               |
+| `ICEBERG_JAVADOC_INDEX_MAX_BYTES`  | `32000000`                                | Search index download limit, 1 MB to 256 MB  |
 | `ICEBERG_SOURCE_DIR`               | valid sibling `../iceberg`, else disabled | Local Iceberg checkout                       |
 | `ICEBERG_SOURCE_INDEX_MAX_BYTES`   | `64000000`                                | Source text kept in memory, 0 to 1 GiB       |
 | `ICEBERG_CATALOG_URI`              | unset                                     | REST Catalog root; HTTPS outside loopback    |

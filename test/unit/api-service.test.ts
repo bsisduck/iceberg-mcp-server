@@ -125,7 +125,11 @@ function config(sourceDir?: string): AppConfig {
       maxRequestBytes: 1_048_576,
       port: 0,
     },
-    javadoc: { baseUrl: new URL('https://iceberg.apache.org/javadoc/'), version: '1.0.0' },
+    javadoc: {
+      baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+      indexMaxBytes: 32_000_000,
+      version: '1.0.0',
+    },
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 1_000 },
     logLevel: 'info',
     sourceDir,

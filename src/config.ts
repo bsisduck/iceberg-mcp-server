@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import { DEFAULT_JAVADOC_INDEX_MAX_BYTES } from './api/javadoc-provider.js';
 import { DEFAULT_SOURCE_INDEX_MAX_BYTES } from './api/source-provider.js';
 import { ConfigurationError } from './shared/errors.js';
 import { DEFAULT_JAVADOC_VERSION, icebergVersionSchema } from './shared/iceberg-version.js';
@@ -20,6 +21,8 @@ const transportSchema = z.enum(['stdio', 'http']);
 
 export interface JavadocConfig {
   readonly baseUrl: URL;
+  /** Ceiling on one downloaded Javadoc search index, applied to the large member index. */
+  readonly indexMaxBytes: number;
   readonly version: string;
 }
 
@@ -386,6 +389,13 @@ export async function loadConfig(
     },
     javadoc: {
       baseUrl: parseJavadocBaseUrl(env['ICEBERG_JAVADOC_BASE_URL']),
+      indexMaxBytes: parseInteger(
+        'ICEBERG_JAVADOC_INDEX_MAX_BYTES',
+        env['ICEBERG_JAVADOC_INDEX_MAX_BYTES'],
+        DEFAULT_JAVADOC_INDEX_MAX_BYTES,
+        1_000_000,
+        268_435_456,
+      ),
       version: versionResult.data,
     },
     limits: {
