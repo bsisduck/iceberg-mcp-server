@@ -1,12 +1,15 @@
-import { execFile } from 'node:child_process';
-import { open, opendir, realpath } from 'node:fs/promises';
+import { open, opendir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { CancelledError, InputError, LimitError, NotFoundError } from '../shared/errors.js';
-import type { SourceIdentity, SourceIndex, SourceTypeRecord, SuperTypeReference } from './types.js';
+import type {
+  SourceIdentity,
+  SourceIndex,
+  SourceIndexStamp,
+  SourceTypeRecord,
+  SuperTypeReference,
+} from './types.js';
 
-const execFileAsync = promisify(execFile);
 const JAVA_FILE_LIMIT = 10_000;
 const JAVA_FILE_MAX_BYTES = 2_000_000;
 /**
@@ -36,6 +39,10 @@ const STABLE_MODULES: ReadonlySet<string> = new Set([
   'orc',
   'parquet',
 ]);
+const GIT_FILE_MAX_BYTES = 1_000_000;
+const GIT_BRANCH_PREFIX = 'refs/heads/';
+const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{7,64}$/u;
+const GIT_SYMBOLIC_REF_PATTERN = /^ref:\s*(refs\/[\w./-]+)$/u;
 const REVAPI_RELATIVE_PATH = path.join('.palantir', 'revapi.yml');
 const REVAPI_MAX_BYTES = 4_000_000;
 /** Maven coordinates of the modules RevAPI checks, for example `org.apache.iceberg:iceberg-core:`. */
@@ -165,25 +172,92 @@ function stripCommentsAndStrings(source: string): string {
   return output;
 }
 
-async function gitValue(root: string, args: readonly string[]): Promise<string | undefined> {
+/** Reads one small file below `.git`. Anything unreadable, oversized, or absent reads as unknown. */
+async function readGitFile(
+  gitDir: string,
+  segments: readonly string[],
+): Promise<string | undefined> {
   try {
-    const result = await execFileAsync('git', ['-C', root, ...args], {
-      encoding: 'utf8',
-      timeout: 5_000,
-      windowsHide: true,
-    });
-    return result.stdout.trim() || undefined;
+    const handle = await open(path.join(gitDir, ...segments), 'r');
+    try {
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || metadata.size > GIT_FILE_MAX_BYTES) {
+        return undefined;
+      }
+      return await handle.readFile('utf8');
+    } finally {
+      await handle.close();
+    }
   } catch {
     return undefined;
   }
 }
 
-async function sourceIdentity(root: string): Promise<SourceIdentity> {
-  const [revision, branch] = await Promise.all([
-    gitValue(root, ['rev-parse', 'HEAD']),
-    gitValue(root, ['branch', '--show-current']),
-  ]);
-  return { branch, revision, root };
+/** `<object id> <ref>` lines, the fallback for a branch with no loose ref file. */
+function packedRevision(packedRefs: string | undefined, ref: string): string | undefined {
+  for (const line of packedRefs?.split('\n') ?? []) {
+    const [revision, name] = line.trim().split(/\s+/u);
+    if (name === ref && revision !== undefined && GIT_OBJECT_ID_PATTERN.test(revision)) {
+      return revision;
+    }
+  }
+  return undefined;
+}
+
+interface GitHead {
+  readonly branch: string | undefined;
+  /** Whatever `HEAD` resolved to, used to notice that the checkout moved. */
+  readonly head: string | undefined;
+  readonly revision: string | undefined;
+}
+
+/**
+ * Reads `.git/HEAD` and the ref it names directly. Running `git` would mean spawning a process on a
+ * path the operator configured, on every index build, so the two files are read instead.
+ */
+async function readGitHead(root: string): Promise<GitHead> {
+  const gitDir = path.join(root, '.git');
+  const head = (await readGitFile(gitDir, ['HEAD']))?.trim();
+  if (head === undefined || head === '') {
+    return { branch: undefined, head: undefined, revision: undefined };
+  }
+  const ref = GIT_SYMBOLIC_REF_PATTERN.exec(head)?.[1];
+  if (ref === undefined) {
+    return {
+      branch: undefined,
+      head,
+      revision: GIT_OBJECT_ID_PATTERN.test(head) ? head : undefined,
+    };
+  }
+  const segments = ref.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return { branch: undefined, head, revision: undefined };
+  }
+  const revision =
+    (await readGitFile(gitDir, segments))?.trim() ??
+    packedRevision(await readGitFile(gitDir, ['packed-refs']), ref);
+  return {
+    branch: ref.startsWith(GIT_BRANCH_PREFIX) ? ref.slice(GIT_BRANCH_PREFIX.length) : undefined,
+    head,
+    revision: revision !== undefined && GIT_OBJECT_ID_PATTERN.test(revision) ? revision : undefined,
+  };
+}
+
+interface CheckoutState {
+  readonly identity: SourceIdentity;
+  readonly stamp: SourceIndexStamp;
+}
+
+async function readCheckoutState(root: string): Promise<CheckoutState> {
+  const [git, metadata] = await Promise.all([readGitHead(root), stat(root).catch(() => undefined)]);
+  return {
+    identity: { branch: git.branch, revision: git.revision, root },
+    stamp: { head: git.revision ?? git.head, rootModifiedMs: metadata?.mtimeMs ?? 0 },
+  };
+}
+
+function sameStamp(left: SourceIndexStamp, right: SourceIndexStamp): boolean {
+  return left.head === right.head && left.rootModifiedMs === right.rootModifiedMs;
 }
 
 function isWithinRoot(root: string, filename: string): boolean {
@@ -462,6 +536,7 @@ export class SourceProvider {
   readonly #indexMaxBytes: number;
   readonly #root: string;
   #indexPromise: Promise<SourceIndex> | undefined;
+  #stamp: SourceIndexStamp | undefined;
 
   private constructor(root: string, indexMaxBytes: number) {
     this.#indexMaxBytes = indexMaxBytes;
@@ -480,16 +555,33 @@ export class SourceProvider {
 
   public clear(): void {
     this.#indexPromise = undefined;
+    this.#stamp = undefined;
   }
 
-  public loadIndex(signal?: AbortSignal): Promise<SourceIndex> {
+  /** Drops the current index and builds it again, whatever the checkout looks like. */
+  public async refresh(signal?: AbortSignal): Promise<SourceIndex> {
+    this.clear();
+    return this.loadIndex(signal);
+  }
+
+  /**
+   * The cached index, rebuilt when the checkout's `HEAD` or root directory changed since it was
+   * built. Reading the two small Git files costs far less than the scan they guard.
+   */
+  public async loadIndex(signal?: AbortSignal): Promise<SourceIndex> {
+    const state = await readCheckoutState(this.#root);
+    if (this.#stamp !== undefined && !sameStamp(this.#stamp, state.stamp)) {
+      this.#indexPromise = undefined;
+    }
     if (this.#indexPromise === undefined) {
-      const build = this.#buildIndex(signal);
+      this.#stamp = state.stamp;
+      const build = this.#buildIndex(state, signal);
       this.#indexPromise = build;
       // A cancelled or failed scan must not poison the provider: drop it so the next call rebuilds.
       void build.catch(() => {
         if (this.#indexPromise === build) {
           this.#indexPromise = undefined;
+          this.#stamp = undefined;
         }
       });
     }
@@ -619,7 +711,7 @@ export class SourceProvider {
       : Promise.resolve(cached);
   }
 
-  async #buildIndex(signal: AbortSignal | undefined): Promise<SourceIndex> {
+  async #buildIndex(state: CheckoutState, signal: AbortSignal | undefined): Promise<SourceIndex> {
     const records: SourceTypeRecord[] = [];
     const sources = new Map<string, string>();
     const stableModules = await readStableModules(this.#root);
@@ -666,10 +758,11 @@ export class SourceProvider {
     return {
       byFullyQualifiedName: new Map(records.map((record) => [record.fullyQualifiedName, record])),
       files: records,
-      identity: await sourceIdentity(this.#root),
+      identity: state.identity,
       loadedAt: new Date(),
       sources,
       stableModules,
+      stamp: state.stamp,
     };
   }
 

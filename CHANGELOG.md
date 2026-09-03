@@ -45,6 +45,14 @@ The project is licensed under the MIT License.
   `CancelledError` instead of walking the rest of the checkout (F25). Every `ApiService` method that
   performs IO takes the same optional `signal` and forwards it to the Javadoc fetches and the source
   provider. A failed or cancelled index build is no longer cached: the next call rebuilds.
+- The source index is no longer built once and kept forever (F27). Each load compares the checkout's
+  current `HEAD` and root directory modification time with the ones the index was built from and
+  rebuilds when either changed, so switching branches or adding a top-level module no longer
+  requires a restart. `SourceProvider.refresh()` rebuilds unconditionally, and `SourceIndex.stamp`
+  records what a build was made from. Reading the revision no longer spawns `git`: `.git/HEAD` and
+  the ref it names are read directly, with a `packed-refs` fallback, a detached `HEAD` taken as the
+  revision, and a bound on both file sizes. On the Apache Iceberg checkout this reports the same
+  revision and branch as `git rev-parse HEAD` and `git branch --show-current`.
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the

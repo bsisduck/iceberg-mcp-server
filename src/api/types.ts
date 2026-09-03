@@ -78,6 +78,16 @@ export interface SourceIdentity {
   readonly root: string;
 }
 
+/**
+ * What the index was built from. A checked-out revision or a changed root directory listing means
+ * the checkout moved under the server, so the next load rebuilds instead of answering from a stale
+ * index.
+ */
+export interface SourceIndexStamp {
+  readonly head: string | undefined;
+  readonly rootModifiedMs: number;
+}
+
 export interface SourceIndex {
   readonly byFullyQualifiedName: ReadonlyMap<string, SourceTypeRecord>;
   readonly files: readonly SourceTypeRecord[];
@@ -94,4 +104,5 @@ export interface SourceIndex {
    * indexed records rather than a boundary on what is indexed.
    */
   readonly stableModules: ReadonlySet<string>;
+  readonly stamp: SourceIndexStamp;
 }

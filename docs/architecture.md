@@ -140,7 +140,13 @@ not follow directory symlinks. It records:
   relative path;
 - declared package;
 - top-level and nested type names discoverable from the source;
-- Git revision and branch when they can be read without mutating the checkout.
+- Git revision and branch, read from `.git/HEAD` and the ref it names — a loose ref file first, then
+  `packed-refs` — without spawning `git` against an operator-configured path.
+
+The index records the revision it was built from and the root directory's modification time. Each
+load compares both against the checkout and rebuilds when either moved, so a `git checkout` or a new
+top-level module is picked up without restarting the server; edits inside an already-indexed module
+are not, and `refresh()` rebuilds unconditionally. A build that fails or is cancelled is not cached.
 
 The RevAPI-checked module set is read from the checkout's own `.palantir/revapi.yml`
 (`org.apache.iceberg:iceberg-core:` names the `core` module) and falls back to the built-in list

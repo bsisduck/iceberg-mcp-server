@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -264,6 +264,59 @@ describe('SourceProvider', (): void => {
     await expect(
       provider.getType('org.apache.iceberg.Table', 1, 10, aborted),
     ).rejects.toMatchObject({ name: 'CancelledError' });
+  });
+
+  it('rebuilds when the checked-out revision or the root directory changes', async (): Promise<void> => {
+    const root = await createCheckout();
+    const gitDir = path.join(root, '.git');
+    const ref = path.join(gitDir, 'refs', 'heads', 'main');
+    await mkdir(path.dirname(ref), { recursive: true });
+    await writeFile(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+    await writeFile(ref, `${'a'.repeat(40)}\n`);
+    const provider = await SourceProvider.create(root);
+
+    const first = await provider.loadIndex();
+    expect(first.identity).toMatchObject({ branch: 'main', revision: 'a'.repeat(40) });
+
+    await writeFile(
+      path.join(root, 'api', 'src', 'main', 'java', 'org', 'apache', 'iceberg', 'Added.java'),
+      'package org.apache.iceberg; public class Added {}',
+    );
+    expect(await provider.loadIndex()).toBe(first);
+
+    await writeFile(ref, `${'b'.repeat(40)}\n`);
+    const afterCommit = await provider.loadIndex();
+    expect(afterCommit).not.toBe(first);
+    expect(afterCommit.identity.revision).toBe('b'.repeat(40));
+    expect(afterCommit.byFullyQualifiedName.has('org.apache.iceberg.Added')).toBe(true);
+
+    await utimes(root, new Date(), new Date(Date.now() + 60_000));
+    const afterTouch = await provider.loadIndex();
+    expect(afterTouch).not.toBe(afterCommit);
+    expect(afterTouch.stamp.rootModifiedMs).not.toBe(afterCommit.stamp.rootModifiedMs);
+  });
+
+  it('resolves a detached HEAD and a packed ref, and refresh rebuilds on demand', async (): Promise<void> => {
+    const root = await createCheckout();
+    const gitDir = path.join(root, '.git');
+    await mkdir(gitDir, { recursive: true });
+    await writeFile(path.join(gitDir, 'HEAD'), `${'c'.repeat(40)}\n`);
+    const detached = await SourceProvider.create(root);
+
+    const detachedIndex = await detached.loadIndex();
+    expect(detachedIndex.identity).toMatchObject({ branch: undefined, revision: 'c'.repeat(40) });
+
+    await writeFile(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+    await writeFile(
+      path.join(gitDir, 'packed-refs'),
+      `# pack-refs with: peeled fully-peeled sorted\n${'d'.repeat(40)} refs/heads/main\n`,
+    );
+    const packed = await SourceProvider.create(root);
+
+    const packedIndex = await packed.loadIndex();
+    expect(packedIndex.identity).toMatchObject({ branch: 'main', revision: 'd'.repeat(40) });
+    expect(await packed.loadIndex()).toBe(packedIndex);
+    expect(await packed.refresh()).not.toBe(packedIndex);
   });
 
   it('does not follow directory symlinks', async (): Promise<void> => {
