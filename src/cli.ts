@@ -10,7 +10,7 @@ import { installShutdownHandlers, startRuntime } from './runtime.js';
 import { errorMessage } from './shared/errors.js';
 import { DEFAULT_JAVADOC_VERSION, isIcebergVersion } from './shared/iceberg-version.js';
 import { createStderrReporter } from './shared/logging.js';
-import { SERVER_VERSION } from './version.js';
+import { isSupportedNodeVersion, NODE_ENGINE_RANGE, SERVER_VERSION } from './version.js';
 
 export const USAGE = `Apache Iceberg MCP Server ${SERVER_VERSION}
 
@@ -116,6 +116,13 @@ export function parseArgs(args: readonly string[]): CliOptions {
 }
 
 export async function main(args: readonly string[] = process.argv.slice(2)): Promise<void> {
+  if (!isSupportedNodeVersion()) {
+    process.stderr.write(
+      `iceberg-mcp-server requires Node.js ${NODE_ENGINE_RANGE ?? ''}; this is ${process.versions.node}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   const options = parseArgs(args);
   if (options.command === 'help') {
     process.stdout.write(USAGE);

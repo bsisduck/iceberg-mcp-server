@@ -135,6 +135,7 @@ instead of truncating valid JSON. Narrow the request or reduce the upstream page
 
 | Symptom                                   | Likely cause and action                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Exits with `requires Node.js`             | The runtime is older than the published `engines.node` range; upgrade Node or point the client at a newer runtime.           |
 | Source tool returns a configuration error | Set `ICEBERG_SOURCE_DIR` to a readable Iceberg checkout containing `api/src/main/java`.                                      |
 | Server exits while configuring a catalog  | Verify `/v1/config`, TLS trust, outbound auth, response content type, and warehouse.                                         |
 | Expected catalog tool is missing          | Inspect `iceberg_catalog_get_config`; the endpoint must be advertised/defaulted and mutations may need opt-in.               |

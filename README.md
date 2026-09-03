@@ -35,7 +35,8 @@ See [tool and workflow reference](docs/tools.md), [coverage matrix](docs/coverag
 
 ## Requirements
 
-- Node.js 20.19 or newer
+- Node.js 20.19 or newer (the CLI checks `process.versions.node` against `engines.node` at startup
+  and exits with a one-line requirement on an older runtime)
 - npm
 - macOS or Linux for the generated client CLI commands; Windows has not been verified
 - Network access to `https://iceberg.apache.org/javadoc/` for Javadoc tools

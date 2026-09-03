@@ -72,6 +72,11 @@ The project is licensed under the MIT License.
 - `ICEBERG_JAVADOC_VERSION`, `ICEBERG_JAVADOC_BASE_URL`, and `ICEBERG_MCP_TRANSPORT` now treat a
   blank value as unset, like every other variable, instead of failing startup. A client `env` map
   that carries an empty entry falls back to the documented default.
+- The CLI now compares `process.versions.node` with the `engines.node` range from `package.json`
+  before doing anything else, writes one requirement line to stderr, and exits non-zero when the
+  runtime is too old, instead of failing later with an obscure syntax or API error. The minimum is
+  derived from the manifest (`NODE_ENGINE_RANGE`, `MINIMUM_NODE_VERSION`, `isSupportedNodeVersion`
+  in `src/version.ts`) rather than restated as a literal.
 
 ### Removed
 

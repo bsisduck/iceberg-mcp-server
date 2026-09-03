@@ -19,7 +19,7 @@ vi.mock('../../src/runtime.js', () => ({
 
 import { isMainModule, main, parseArgs, USAGE } from '../../src/cli.js';
 import { DEFAULT_JAVADOC_VERSION } from '../../src/shared/iceberg-version.js';
-import { SERVER_VERSION } from '../../src/version.js';
+import { MINIMUM_NODE_VERSION, NODE_ENGINE_RANGE, SERVER_VERSION } from '../../src/version.js';
 
 afterEach((): void => {
   vi.clearAllMocks();
@@ -162,6 +162,37 @@ describe('parseArgs', (): void => {
     expect(write).toHaveBeenCalledWith(
       'Iceberg MCP server listening at http://127.0.0.1:3000/mcp\n',
     );
+  });
+
+  it('refuses to start on a runtime older than the published engines range', async (): Promise<void> => {
+    const originalVersions = process.versions;
+    const originalExitCode = process.exitCode;
+    const [major = 0] = (MINIMUM_NODE_VERSION ?? '').split('.').map((part) => Number(part));
+    const unsupported = `${major - 1}.0.0`;
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    Object.defineProperty(process, 'versions', {
+      configurable: true,
+      value: { ...originalVersions, node: unsupported },
+    });
+
+    try {
+      await main([]);
+
+      expect(write).toHaveBeenCalledTimes(1);
+      const message = String(write.mock.calls[0]?.[0] ?? '');
+      expect(message).toContain(`requires Node.js ${NODE_ENGINE_RANGE ?? ''}`);
+      expect(message).toContain(unsupported);
+      expect(message.endsWith('\n')).toBe(true);
+      expect(process.exitCode).toBe(1);
+      expect(mocks.loadConfig).not.toHaveBeenCalled();
+      expect(mocks.startRuntime).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'versions', {
+        configurable: true,
+        value: originalVersions,
+      });
+      process.exitCode = originalExitCode;
+    }
   });
 
   it('keeps stdio stdout protocol-only when starting without an address', async (): Promise<void> => {
