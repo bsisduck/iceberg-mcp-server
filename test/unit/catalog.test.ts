@@ -1050,3 +1050,35 @@ describe('CatalogClient mutation audit trail', (): void => {
     client.close();
   });
 });
+
+describe('CatalogClient pagination mapping', (): void => {
+  async function pageData(token: unknown): Promise<unknown> {
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], () =>
+      Promise.resolve(jsonResponse({ namespaces: [['analytics']], 'next-page-token': token })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+    const result = await client.call({
+      operationId: 'listNamespaces',
+      path: {},
+      query: { pageSize: 10 },
+    });
+    client.close();
+    return result;
+  }
+
+  it('replaces the raw next-page-token with the opaque cursor', async (): Promise<void> => {
+    const result = await pageData('server-token');
+
+    expect(result).toMatchObject({ data: { namespaces: [['analytics']] } });
+    expect((result as { next_cursor: string | null }).next_cursor).not.toBeNull();
+    expect(JSON.stringify(result)).not.toContain('next-page-token');
+    expect(JSON.stringify(result)).not.toContain('server-token');
+  });
+
+  it('drops an exhausted next-page-token instead of reporting two pagination fields', async (): Promise<void> => {
+    const result = await pageData(null);
+
+    expect(result).toMatchObject({ data: { namespaces: [['analytics']] }, next_cursor: null });
+    expect(JSON.stringify(result)).not.toContain('next-page-token');
+  });
+});

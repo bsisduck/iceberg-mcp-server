@@ -36,9 +36,11 @@ removal is evidence about published identity, not proof that runtime behavior is
 ## REST Catalog tools
 
 Every catalog result contains `operation_id`, upstream HTTP `status`, sanitized `data`, and an
-opaque `next_cursor` when the upstream returns `next-page-token`. Multipart namespaces are arrays of
-unencoded segments, for example `{"namespace":["company","finance"]}`. Table, view, and function
-names are also supplied unencoded; the server performs path encoding.
+opaque `next_cursor` when the upstream returns `next-page-token`. The raw `next-page-token` is
+removed from `data`, so `next_cursor` is the only pagination field in a result: pass it back as
+`cursor` with the same query inputs. Multipart namespaces are arrays of unencoded segments, for
+example `{"namespace":["company","finance"]}`. Table, view, and function names are also supplied
+unencoded; the server performs path encoding.
 
 ### Released read tools
 

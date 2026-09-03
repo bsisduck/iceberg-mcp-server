@@ -92,6 +92,10 @@ function isJsonContent(response: Response): boolean {
   return contentType === 'application/json' || contentType.endsWith('+json');
 }
 
+function omitToken(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'next-page-token'));
+}
+
 /**
  * The catalog object a call acted on, for the audit line. Path inputs name it for almost every
  * operation; renames and transaction commits carry it in the arguments instead.
@@ -589,13 +593,18 @@ export class CatalogClient {
         `Catalog response exceeds ${this.#limits.maxResponseChars} characters; request a smaller page`,
       );
     }
-    const token =
-      data !== null && typeof data === 'object'
-        ? (data as Record<string, unknown>)['next-page-token']
+    const record =
+      data !== null && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
         : undefined;
+    const token = record?.['next-page-token'];
     const nextCursor = typeof token === 'string' ? encodeTokenCursor(token, cursorIdentity) : null;
+    // The raw server token is dropped so `next_cursor` is the only pagination field the model sees;
+    // it is opaque, scoped to this query, and would otherwise invite a second, unusable one.
+    const payload = record !== undefined && 'next-page-token' in record ? omitToken(record) : data;
     return {
-      data: operation.id === 'loadCredentials' ? sanitizeCredentials(data) : redactSecrets(data),
+      data:
+        operation.id === 'loadCredentials' ? sanitizeCredentials(payload) : redactSecrets(payload),
       next_cursor: nextCursor,
       operation_id: operation.id,
       status: response.status,

@@ -32,6 +32,9 @@ The project is licensed under the MIT License.
   reports `LimitError` instead of an `UpstreamError`, and a catalog body that is not valid UTF-8 is
   a non-retryable `UpstreamError` instead of a retryable generic failure.
 
+- A paginated catalog result no longer carries two pagination fields: the raw `next-page-token` key
+  is removed from `data` once it has been encoded into the opaque, query-scoped `next_cursor` (F12).
+
 - Every non-read catalog call now writes the `catalog.mutation` audit line that `auditLog` already
   defined but nothing emitted (F20): operation id, identifier (from the path inputs, or from the
   tool arguments for renames and transaction commits), idempotency key, upstream status, outcome —
