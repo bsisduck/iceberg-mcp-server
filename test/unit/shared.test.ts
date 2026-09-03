@@ -17,6 +17,7 @@ import {
 import { redactSecrets } from '../../src/shared/redaction.js';
 import { executeTool } from '../../src/shared/responses.js';
 import { Secret } from '../../src/shared/secret.js';
+import { sleep } from '../../src/shared/sleep.js';
 
 describe('AsyncTtlCache', (): void => {
   it('shares promises and evicts least-recently-used entries', async (): Promise<void> => {
@@ -638,6 +639,47 @@ describe('mutation audit log', (): void => {
       outcome: 'failure',
       status: null,
     });
+  });
+});
+
+describe('abort-aware sleep', (): void => {
+  it('resolves after the delay and detaches its abort listener', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const pending = sleep(1_000, controller.signal);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toBeUndefined();
+    controller.abort();
+    vi.useRealTimers();
+  });
+
+  it('resolves immediately for a non-positive delay', async (): Promise<void> => {
+    await expect(sleep(0)).resolves.toBeUndefined();
+  });
+
+  it('rejects with the signal reason when it is already aborted', async (): Promise<void> => {
+    const controller = new AbortController();
+    controller.abort(new InputError('gone'));
+
+    await expect(sleep(1_000, controller.signal)).rejects.toThrow(/gone/u);
+  });
+
+  it('rejects promptly when the signal aborts while waiting', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const pending = sleep(60_000, controller.signal);
+    controller.abort();
+
+    await expect(pending).rejects.toThrow(/aborted/u);
+    vi.useRealTimers();
+  });
+
+  it('rejects with a plain abort error when the reason is not an Error', async (): Promise<void> => {
+    const controller = new AbortController();
+    controller.abort('stop');
+
+    await expect(sleep(1_000, controller.signal)).rejects.toBeInstanceOf(DOMException);
   });
 });
 

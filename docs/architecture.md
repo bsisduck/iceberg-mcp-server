@@ -98,6 +98,7 @@ src/
     secret.ts                credential wrapper that redacts on stringify and inspect
     fetch.ts                 bounded same-root HTTP retrieval and bounded body readers
     semaphore.ts             FIFO, abort-aware concurrency permits
+    sleep.ts                 abort-aware pause used between retry attempts
 test/
   unit/
   integration/
@@ -154,7 +155,12 @@ Requests use:
 - explicit accepted content types;
 - a sanitized `User-Agent` and request correlation ID;
 - internal bearer/OAuth headers that are never added to results;
-- retry only for safe reads and eligible server errors, with jitter and `Retry-After`;
+- retry for safe reads and idempotency-keyed mutations on eligible server errors (429, 5xx) and on
+  retryable transport failures such as network errors and per-attempt timeouts, with jitter and
+  `Retry-After` honoured up to the per-attempt timeout and only while the call's retry budget (the
+  per-attempt timeout multiplied by the attempt allowance) still covers the wait;
+- a concurrency permit taken per attempt and released while the backoff sleeps, so a queued request
+  never waits behind a sleeping one;
 - spec-aware UUIDv7 idempotency only when advertised for mutations.
 
 Every operation checks discovery before network I/O. Expected REST failures become structured tool
@@ -243,6 +249,8 @@ mismatch returns an actionable input error instead of silently changing the quer
 - `NotFoundError`: exact API/source/catalog object does not exist.
 - `CapabilityError`: the REST Catalog did not advertise the requested operation.
 - `UpstreamError`: sanitized HTTP/Iceberg error with status and retry guidance.
+- `CancelledError`: the caller's abort signal fired; never retried and never reported as an upstream
+  failure.
 - `LimitError`: source, response, request, or concurrency bounds were exceeded.
 - `InternalError`: unexpected failure logged with correlation ID and redacted context.
 

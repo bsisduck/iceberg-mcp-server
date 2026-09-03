@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 
 import {
+  CancelledError,
   ConfigurationError,
   CapabilityError,
   InputError,
@@ -27,6 +28,7 @@ export interface ToolErrorBody {
 
 function expectedError(error: unknown): boolean {
   return (
+    error instanceof CancelledError ||
     error instanceof ConfigurationError ||
     error instanceof CapabilityError ||
     error instanceof InputError ||

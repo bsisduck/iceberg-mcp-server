@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { CatalogConfig, LimitsConfig } from '../../src/config.js';
+import { CancelledError } from '../../src/shared/errors.js';
 import { Secret } from '../../src/shared/secret.js';
 import { CatalogClient, uuidV7 } from '../../src/catalog/client.js';
 import {
@@ -30,6 +31,44 @@ function jsonResponse(value: unknown, status = 200): Response {
     headers: { 'content-type': 'application/json' },
     status,
   });
+}
+
+function discoveryResponse(
+  endpoints: readonly string[],
+  extra: Record<string, unknown> = {},
+): Response {
+  return jsonResponse({ defaults: {}, endpoints, overrides: {}, ...extra });
+}
+
+function busyResponse(retryAfterSeconds?: string): Response {
+  return new Response(
+    JSON.stringify({ error: { code: 429, message: 'slow down', type: 'TooManyRequests' } }),
+    {
+      headers: {
+        'content-type': 'application/json',
+        ...(retryAfterSeconds === undefined ? {} : { 'retry-after': retryAfterSeconds }),
+      },
+      status: 429,
+    },
+  );
+}
+
+/** A fetch that answers discovery from `endpoints` and delegates every operation call to `answer`. */
+function scriptedFetch(
+  endpoints: readonly string[],
+  answer: (attempt: number, request: Request) => Promise<Response>,
+  discoveryExtra: Record<string, unknown> = {},
+): { readonly attempts: () => number; readonly fetch: typeof globalThis.fetch } {
+  let attempt = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+    const request = new Request(input, init);
+    if (request.url.includes('/v1/config')) {
+      return Promise.resolve(discoveryResponse(endpoints, discoveryExtra));
+    }
+    attempt += 1;
+    return answer(attempt, request);
+  });
+  return { attempts: (): number => attempt, fetch };
 }
 
 describe('catalog operation coverage', (): void => {
@@ -626,6 +665,214 @@ describe('CatalogClient', (): void => {
     });
 
     expect(result).toMatchObject({ data: null, operation_id: 'dropNamespace', status: 204 });
+    client.close();
+  });
+});
+
+describe('CatalogClient retries and cancellation', (): void => {
+  afterEach((): void => {
+    vi.useRealTimers();
+  });
+
+  it('retries a network failure for a read and succeeds on a later attempt', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], (attempt) =>
+      attempt === 1
+        ? Promise.reject(new TypeError('fetch failed'))
+        : Promise.resolve(jsonResponse({ namespaces: [['analytics']] })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    const pending = client.call({
+      operationId: 'listNamespaces',
+      path: {},
+      query: { pageSize: 10 },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toMatchObject({ operation_id: 'listNamespaces', status: 200 });
+    expect(scripted.attempts()).toBe(2);
+    client.close();
+  });
+
+  it('retries a network failure for an idempotency-keyed mutation under one key', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const keys: (string | null)[] = [];
+    const scripted = scriptedFetch(
+      ['POST /v1/{prefix}/namespaces'],
+      (attempt, request) => {
+        keys.push(request.headers.get('idempotency-key'));
+        return attempt === 1
+          ? Promise.reject(new TypeError('fetch failed'))
+          : Promise.resolve(jsonResponse({ namespace: ['analytics'], properties: {} }));
+      },
+      { 'idempotency-key-lifetime': 'PT30M' },
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    const pending = client.call({
+      body: { namespace: ['analytics'] },
+      operationId: 'createNamespace',
+      path: {},
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toMatchObject({ status: 200 });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+    client.close();
+  });
+
+  it('never retries a network failure for a mutation without an idempotency key', async (): Promise<void> => {
+    const scripted = scriptedFetch(['POST /v1/{prefix}/namespaces'], () =>
+      Promise.reject(new TypeError('fetch failed')),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await expect(
+      client.call({ body: { namespace: ['analytics'] }, operationId: 'createNamespace', path: {} }),
+    ).rejects.toMatchObject({ retryable: true, status: 502 });
+    expect(scripted.attempts()).toBe(1);
+    client.close();
+  });
+
+  it('reports a caller abort during the request as cancellation, not a retryable failure', async (): Promise<void> => {
+    const controller = new AbortController();
+    const gate = { open: (): void => undefined };
+    const started = new Promise<void>((resolve) => {
+      gate.open = resolve;
+    });
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], (_attempt, request) => {
+      gate.open();
+      return new Promise<Response>((_resolve, reject) => {
+        request.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
+      });
+    });
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    const pending = client.call(
+      { operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } },
+      { signal: controller.signal },
+    );
+    await started;
+    controller.abort();
+    const failure = await pending.catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(CancelledError);
+    expect(failure).toMatchObject({ name: 'CancelledError' });
+    expect(scripted.attempts()).toBe(1);
+    client.close();
+  });
+
+  it('rejects with cancellation promptly when the caller aborts during the backoff', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], () =>
+      Promise.resolve(busyResponse('1')),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    const pending = client.call(
+      { operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } },
+      { signal: controller.signal },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(scripted.attempts()).toBe(1);
+    controller.abort();
+
+    await expect(pending).rejects.toBeInstanceOf(CancelledError);
+    expect(scripted.attempts()).toBe(1);
+    client.close();
+  });
+
+  it('honours a Retry-After beyond five seconds up to the request timeout', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], (attempt) =>
+      Promise.resolve(
+        attempt === 1 ? busyResponse('10') : jsonResponse({ namespaces: [['analytics']] }),
+      ),
+    );
+    const client = await CatalogClient.create({
+      config: config(),
+      fetch: scripted.fetch,
+      limits: { ...limits, requestTimeoutMs: 30_000 },
+    });
+
+    const pending = client.call({
+      operationId: 'listNamespaces',
+      path: {},
+      query: { pageSize: 10 },
+    });
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(scripted.attempts()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toMatchObject({ status: 200 });
+    expect(scripted.attempts()).toBe(2);
+    client.close();
+  });
+
+  it('caps the retry wait at the request timeout', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], (attempt) =>
+      Promise.resolve(
+        attempt === 1 ? busyResponse('3600') : jsonResponse({ namespaces: [['analytics']] }),
+      ),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    const pending = client.call({
+      operationId: 'listNamespaces',
+      path: {},
+      query: { pageSize: 10 },
+    });
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(scripted.attempts()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toMatchObject({ status: 200 });
+    client.close();
+  });
+
+  it('surfaces the upstream error when Retry-After no longer fits the deadline', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], () => {
+      vi.setSystemTime(Date.now() + 5_900);
+      return Promise.resolve(busyResponse('1'));
+    });
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await expect(
+      client.call({ operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } }),
+    ).rejects.toMatchObject({ retryable: true, status: 429, upstreamType: 'TooManyRequests' });
+    expect(scripted.attempts()).toBe(1);
+    client.close();
+  });
+
+  it('releases its concurrency slot while a retry sleeps', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], (attempt) =>
+      Promise.resolve(
+        attempt <= 8 ? busyResponse('1') : jsonResponse({ namespaces: [['analytics']] }),
+      ),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+    const sleeping = Array.from({ length: 8 }, () =>
+      client.call({ operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } }),
+    );
+
+    const overflow = client.call({
+      operationId: 'listNamespaces',
+      path: {},
+      query: { pageSize: 11 },
+    });
+
+    await expect(overflow).resolves.toMatchObject({ status: 200 });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(Promise.all(sleeping)).resolves.toHaveLength(8);
     client.close();
   });
 });

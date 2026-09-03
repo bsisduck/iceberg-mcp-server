@@ -1,14 +1,14 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import { z } from 'zod';
 
 import type { CatalogConfig, LimitsConfig } from '../config.js';
-import { CapabilityError, LimitError, UpstreamError } from '../shared/errors.js';
+import { CancelledError, CapabilityError, LimitError, UpstreamError } from '../shared/errors.js';
 import { cancelBody, readBoundedText } from '../shared/fetch.js';
 import { decodeTokenCursor, encodeTokenCursor } from '../shared/pagination.js';
 import { redactSecrets } from '../shared/redaction.js';
 import { Semaphore } from '../shared/semaphore.js';
+import { sleep } from '../shared/sleep.js';
 import { USER_AGENT } from '../version.js';
 import type { CatalogAuthProvider } from './auth.js';
 import { createCatalogAuthProvider } from './auth.js';
@@ -31,6 +31,7 @@ const errorResponseSchema = z.looseObject({
   }),
 });
 const MAX_CATALOG_REQUEST_BYTES = 1_048_576;
+const MAX_CATALOG_ATTEMPTS = 3;
 
 function normalizedBaseUri(uri: URL): URL {
   const base = new URL(uri);
@@ -86,12 +87,25 @@ function isJsonContent(response: Response): boolean {
   return contentType === 'application/json' || contentType.endsWith('+json');
 }
 
-function retryAfter(response: Response, attempt: number): number {
+/** `Retry-After` in milliseconds when the catalog sent a delta-seconds value, otherwise undefined. */
+function retryAfterMs(response: Response): number | undefined {
   const value = response.headers.get('retry-after');
-  if (value !== null && /^\d+$/u.test(value)) {
-    return Math.min(Number(value) * 1_000, 5_000);
-  }
+  return value !== null && /^\d+$/u.test(value) ? Number(value) * 1_000 : undefined;
+}
+
+/** Exponential backoff with jitter, used when the catalog offers no `Retry-After`. */
+function backoffMs(attempt: number): number {
   return Math.min(1_000, 100 * 2 ** attempt) + Math.floor(Math.random() * 50);
+}
+
+function normalizeAttemptError(error: unknown, timeoutSignal: AbortSignal): Error {
+  if (timeoutSignal.aborted) {
+    return new UpstreamError('Catalog request timed out', 504, true, { cause: error });
+  }
+  if (error instanceof UpstreamError || error instanceof LimitError) {
+    return error;
+  }
+  return new UpstreamError('Catalog request failed', 502, true, { cause: error });
 }
 
 function sanitizeCredentials(data: unknown): unknown {
@@ -124,6 +138,24 @@ export interface CatalogClientOptions {
   readonly config: CatalogConfig;
   readonly fetch?: typeof globalThis.fetch | undefined;
   readonly limits: LimitsConfig;
+}
+
+export interface CatalogCallOptions {
+  /** Caller cancellation: aborts the in-flight fetch, the queued permit, and the retry backoff. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** One logical call, including the state shared by every attempt made on its behalf. */
+interface CatalogRequest {
+  readonly attempts: number;
+  readonly body: string | undefined;
+  readonly correlationId: string;
+  readonly cursorIdentity: unknown;
+  readonly deadline: number;
+  readonly idempotencyKey: string | undefined;
+  readonly operation: CatalogOperation;
+  readonly signal: AbortSignal | undefined;
+  readonly url: URL;
 }
 
 export class CatalogClient {
@@ -276,7 +308,7 @@ export class CatalogClient {
     };
   }
 
-  public async call(call: CatalogCall, signal?: AbortSignal): Promise<CatalogResult> {
+  public async call(call: CatalogCall, options: CatalogCallOptions = {}): Promise<CatalogResult> {
     const operation = operationById(call.operationId);
     if (operation.id === 'getConfig') {
       return this.configResult();
@@ -302,75 +334,117 @@ export class CatalogClient {
       !canRetryWithoutKey && this.discovery.idempotencyKeyLifetime !== undefined
         ? uuidV7()
         : undefined;
-    const attempts = canRetryWithoutKey || idempotencyKey !== undefined ? 3 : 1;
-    return this.#semaphore.use(async () => {
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        const result = await this.#attempt(
-          operation,
-          url,
-          body,
-          idempotencyKey,
-          cursorIdentity,
-          attempt,
-          attempt + 1 < attempts,
-          signal,
-        );
-        if (typeof result === 'number') {
-          await delay(result, undefined, { signal });
-          continue;
-        }
-        return result;
-      }
-      throw new UpstreamError('Catalog retry limit exceeded', 502, false);
-    }, signal);
+    const attempts = canRetryWithoutKey || idempotencyKey !== undefined ? MAX_CATALOG_ATTEMPTS : 1;
+    return this.#run({
+      attempts,
+      body,
+      correlationId: randomUUID(),
+      cursorIdentity,
+      // Retries share one budget: the per-attempt timeout multiplied by the attempt allowance.
+      deadline: Date.now() + this.#limits.requestTimeoutMs * attempts,
+      idempotencyKey,
+      operation,
+      signal: options.signal,
+      url,
+    });
   }
 
+  /**
+   * Runs the attempt loop. The semaphore permit is acquired per attempt and released while the
+   * backoff sleeps, so a waiting request never queues behind a sleeping one. A caller that aborts
+   * — mid-fetch, while queued for a permit, or during the backoff — gets a `CancelledError` rather
+   * than a retryable upstream failure, because no further attempt would help.
+   */
+  async #run(request: CatalogRequest): Promise<CatalogResult> {
+    try {
+      for (let attempt = 0; attempt < request.attempts; attempt += 1) {
+        const outcome = await this.#semaphore.use(
+          () => this.#attempt(request, attempt, attempt + 1 < request.attempts),
+          request.signal,
+        );
+        if (typeof outcome !== 'number') {
+          return outcome;
+        }
+        await sleep(outcome, request.signal);
+      }
+      throw new UpstreamError('Catalog retry limit exceeded', 502, false);
+    } catch (error) {
+      if (request.signal?.aborted === true && !(error instanceof CancelledError)) {
+        throw new CancelledError('Catalog request was cancelled', { cause: error });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * One HTTP attempt. Returns the result, or the number of milliseconds to wait before the next
+   * attempt when this one failed in a way another attempt could fix.
+   */
   async #attempt(
-    operation: CatalogOperation,
-    url: URL,
-    body: string | undefined,
-    idempotencyKey: string | undefined,
-    cursorIdentity: unknown,
+    request: CatalogRequest,
     attempt: number,
     canRetry: boolean,
-    signal: AbortSignal | undefined,
   ): Promise<CatalogResult | number> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#limits.requestTimeoutMs);
     const combined =
-      signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]);
+      request.signal === undefined
+        ? controller.signal
+        : AbortSignal.any([request.signal, controller.signal]);
     try {
       const authorization = await this.#auth.authorization(combined);
-      const response = await this.#fetch(url, {
-        ...(body === undefined ? {} : { body }),
+      const response = await this.#fetch(request.url, {
+        ...(request.body === undefined ? {} : { body: request.body }),
         headers: {
           accept: 'application/json',
           ...(authorization === undefined ? {} : { authorization }),
-          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-          ...(idempotencyKey === undefined ? {} : { 'idempotency-key': idempotencyKey }),
+          ...(request.body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(request.idempotencyKey === undefined
+            ? {}
+            : { 'idempotency-key': request.idempotencyKey }),
           'user-agent': USER_AGENT,
-          'x-request-id': randomUUID(),
+          'x-request-id': request.correlationId,
         },
-        method: operation.method,
+        method: request.operation.method,
         redirect: 'error',
         signal: combined,
       });
       if ((response.status === 429 || response.status >= 500) && canRetry) {
-        cancelBody(response);
-        return retryAfter(response, attempt);
+        const wait = this.#retryWait(
+          retryAfterMs(response) ?? backoffMs(attempt),
+          request.deadline,
+        );
+        if (wait !== undefined) {
+          cancelBody(response);
+          return wait;
+        }
       }
-      return await this.#result(operation, response, cursorIdentity);
+      return await this.#result(request.operation, response, request.cursorIdentity);
     } catch (error) {
-      if (controller.signal.aborted && !signal?.aborted) {
-        throw new UpstreamError('Catalog request timed out', 504, true, { cause: error });
+      if (request.signal?.aborted === true) {
+        throw new CancelledError('Catalog request was cancelled', { cause: error });
       }
-      if (!(error instanceof UpstreamError) && !(error instanceof LimitError)) {
-        throw new UpstreamError('Catalog request failed', 502, true, { cause: error });
+      const failure = normalizeAttemptError(error, controller.signal);
+      if (canRetry && failure instanceof UpstreamError && failure.retryable) {
+        const wait = this.#retryWait(backoffMs(attempt), request.deadline);
+        if (wait !== undefined) {
+          return wait;
+        }
       }
-      throw error;
+      throw failure;
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Bounds a requested wait by the per-attempt timeout, then keeps it only when it still fits the
+   * call's deadline. A `Retry-After` longer than the budget means the caller is better served by
+   * the upstream error than by a retry it cannot afford to wait for.
+   */
+  #retryWait(requested: number, deadline: number): number | undefined {
+    const wait = Math.min(requested, this.#limits.requestTimeoutMs);
+    return Date.now() + wait <= deadline ? wait : undefined;
   }
 
   async #result(

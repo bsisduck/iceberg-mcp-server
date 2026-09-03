@@ -32,6 +32,21 @@ The project is licensed under the MIT License.
   reports `LimitError` instead of an `UpstreamError`, and a catalog body that is not valid UTF-8 is
   a non-retryable `UpstreamError` instead of a retryable generic failure.
 
+- The catalog client now retries retryable transport failures — network errors and per-attempt
+  timeouts — for `GET`/`HEAD` and for idempotency-keyed mutations, using the same attempt budget and
+  backoff as HTTP 429 and 5xx (F26). `Retry-After` is honoured up to the per-attempt request timeout
+  instead of a fixed five-second cap, and a wait that no longer fits the call's retry budget
+  surfaces the upstream error instead of sleeping (F26). The concurrency permit is now acquired per
+  attempt and released while the backoff sleeps, so a queued request no longer waits behind a
+  sleeping one (F26).
+- A caller that aborts — during the fetch, while queued for a permit, or during the retry backoff —
+  now gets the new `CancelledError` (`type: "CancelledError"`, `retryable: false`, `status: null`)
+  instead of a retryable `UpstreamError` 502 (F25, F26). `CatalogClient.call` takes its abort signal
+  as `{ signal }` in a new options argument, and the signal reaches the fetch, the semaphore, the
+  auth token request, and the backoff sleep (F25). The new abort-aware `sleep`
+  (`src/shared/sleep.ts`) replaces `node:timers/promises` in the retry loop so a cancelled backoff
+  ends immediately.
+
 - Recursive redaction now also matches plural and compound credential names (`credentials`,
   `secrets`, `api-key`/`apikey`, `account-key`, `shared-key`, `connection-string`, `passphrase`,
   `passwd`, `signing-key`, `encryption-key`, `decryption-key`, `sse.key`) and camelCase keys such as

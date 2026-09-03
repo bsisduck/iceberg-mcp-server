@@ -33,6 +33,17 @@ export class CapabilityError extends Error {
   }
 }
 
+/**
+ * The caller went away: an `AbortSignal` from the client or the transport aborted before the work
+ * finished. Cancellation is never retryable, because nobody is waiting for a second attempt.
+ */
+export class CancelledError extends Error {
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'CancelledError';
+  }
+}
+
 export class UpstreamError extends Error {
   public readonly retryable: boolean;
   public readonly status: number;
