@@ -5,7 +5,7 @@ import type { MockInstance } from 'vitest';
 
 import { AsyncTtlCache } from '../../src/shared/cache.js';
 import { BoundedFetcher, readBounded, readBoundedText } from '../../src/shared/fetch.js';
-import { InputError, LimitError, UpstreamError } from '../../src/shared/errors.js';
+import { CancelledError, InputError, LimitError, UpstreamError } from '../../src/shared/errors.js';
 import { auditLog, createStderrReporter, stderrReporter } from '../../src/shared/logging.js';
 import {
   decodeCursor,
@@ -428,7 +428,7 @@ describe('tool responses', (): void => {
     expect(reporter.report).not.toHaveBeenCalled();
   });
 
-  it('normalizes expected, upstream, oversized, and unexpected failures', async (): Promise<void> => {
+  it('normalizes expected, cancelled, upstream, oversized, and unexpected failures', async (): Promise<void> => {
     const reporter = { report: vi.fn() };
     const expected = await executeTool(
       () => Promise.reject(new InputError('bad cursor')),
@@ -440,6 +440,29 @@ describe('tool responses', (): void => {
       isError: true,
       structuredContent: { error: { correlation_id: null, message: 'bad cursor' } },
     });
+
+    // A cancelled call is the caller's own doing: it keeps its own type, is never retryable, and
+    // carries no upstream status or correlation id to report.
+    const cancelled = await executeTool(
+      () => Promise.reject(new CancelledError('Catalog request was cancelled')),
+      () => 'unused',
+      reporter,
+      1_000,
+    );
+    expect(cancelled).toMatchObject({
+      content: [{ text: 'Error: Catalog request was cancelled', type: 'text' }],
+      isError: true,
+      structuredContent: {
+        error: {
+          correlation_id: null,
+          message: 'Catalog request was cancelled',
+          retryable: false,
+          status: null,
+          type: 'CancelledError',
+        },
+      },
+    });
+    expect(reporter.report).not.toHaveBeenCalled();
 
     const upstream = await executeTool(
       () =>
