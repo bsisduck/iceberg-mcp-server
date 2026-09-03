@@ -15,6 +15,20 @@ async function createCheckout(): Promise<string> {
   const spark = path.join(root, 'spark', 'src', 'main', 'java', 'org', 'apache', 'iceberg');
   await mkdir(api, { recursive: true });
   await mkdir(spark, { recursive: true });
+  await mkdir(path.join(root, 'api', 'src', 'test', 'java', 'org', 'apache', 'iceberg'), {
+    recursive: true,
+  });
+  await mkdir(path.join(root, 'core', 'build', 'generated', 'src', 'main', 'java'), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(root, 'api', 'src', 'test', 'java', 'org', 'apache', 'iceberg', 'TestTable.java'),
+    'package org.apache.iceberg; public class TestTable {}',
+  );
+  await writeFile(
+    path.join(root, 'core', 'build', 'generated', 'src', 'main', 'java', 'Generated.java'),
+    'package generated; public class Generated {}',
+  );
   await writeFile(
     path.join(api, 'Table.java'),
     `package org.apache.iceberg;
@@ -43,6 +57,77 @@ afterEach(async (): Promise<void> => {
 });
 
 describe('SourceProvider', (): void => {
+  it('indexes nested module source roots and skips test and build trees', async (): Promise<void> => {
+    const root = await createCheckout();
+    const nested = path.join(
+      root,
+      'spark',
+      'v3.5',
+      'spark',
+      'src',
+      'main',
+      'java',
+      'org',
+      'apache',
+      'iceberg',
+      'spark',
+    );
+    await mkdir(nested, { recursive: true });
+    await writeFile(
+      path.join(nested, 'SparkTable.java'),
+      `package org.apache.iceberg.spark;
+       public class SparkTable {}
+      `,
+    );
+    const provider = await SourceProvider.create(root);
+
+    const index = await provider.loadIndex();
+
+    expect(index.files.map((record) => record.fullyQualifiedName)).toEqual([
+      'org.apache.iceberg.BaseTable',
+      'org.apache.iceberg.spark.SparkTable',
+      'org.apache.iceberg.Table',
+    ]);
+    expect(index.byFullyQualifiedName.get('org.apache.iceberg.spark.SparkTable')).toMatchObject({
+      module: 'spark/v3.5/spark',
+      relativePath: path.join(
+        'spark',
+        'v3.5',
+        'spark',
+        'src',
+        'main',
+        'java',
+        'org',
+        'apache',
+        'iceberg',
+        'spark',
+        'SparkTable.java',
+      ),
+      stableModule: false,
+    });
+  });
+
+  it('derives the stable module set from the checkout RevAPI configuration', async (): Promise<void> => {
+    const root = await createCheckout();
+    await mkdir(path.join(root, '.palantir'), { recursive: true });
+    await writeFile(
+      path.join(root, '.palantir', 'revapi.yml'),
+      `acceptedBreaks:
+  "1.0.0":
+    org.apache.iceberg:iceberg-spark:
+    - code: "java.method.removed"
+      old: "method void org.apache.iceberg.Table::refresh()"
+`,
+    );
+    const provider = await SourceProvider.create(root);
+
+    const index = await provider.loadIndex();
+
+    expect([...index.stableModules]).toEqual(['spark']);
+    expect(index.byFullyQualifiedName.get('org.apache.iceberg.Table')?.stableModule).toBe(false);
+    expect(index.byFullyQualifiedName.get('org.apache.iceberg.BaseTable')?.stableModule).toBe(true);
+  });
+
   it('indexes canonical production Java source and resolves nested types', async (): Promise<void> => {
     const root = await createCheckout();
     const provider = await SourceProvider.create(root);

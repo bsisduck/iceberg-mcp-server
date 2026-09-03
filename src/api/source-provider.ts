@@ -9,7 +9,31 @@ import type { SourceIdentity, SourceIndex, SourceTypeRecord } from './types.js';
 const execFileAsync = promisify(execFile);
 const JAVA_FILE_LIMIT = 10_000;
 const JAVA_FILE_MAX_BYTES = 2_000_000;
-const STABLE_MODULES = new Set(['api', 'common', 'core', 'data', 'orc', 'parquet']);
+/** Production sources live under `<module>/src/main/java`, at any depth below the checkout root. */
+const JAVA_SOURCE_SEGMENTS = ['src', 'main', 'java'] as const;
+/** Build output, tooling state, and version control never contain indexable production sources. */
+const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
+  '.git',
+  '.gradle',
+  '.idea',
+  'build',
+  'node_modules',
+  'out',
+  'target',
+]);
+/** Used when the checkout carries no `.palantir/revapi.yml` to derive the RevAPI project set from. */
+const STABLE_MODULES: ReadonlySet<string> = new Set([
+  'api',
+  'common',
+  'core',
+  'data',
+  'orc',
+  'parquet',
+]);
+const REVAPI_RELATIVE_PATH = path.join('.palantir', 'revapi.yml');
+const REVAPI_MAX_BYTES = 4_000_000;
+/** Maven coordinates of the modules RevAPI checks, for example `org.apache.iceberg:iceberg-core:`. */
+const REVAPI_MODULE_PATTERN = /(?:^|\s)org\.apache\.iceberg:iceberg-([a-z0-9][a-z0-9-]*)\s*:/gmu;
 const packagePattern = /^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;/mu;
 const declarationPattern =
   /(?:^|\s)(?:public\s+|protected\s+|private\s+|static\s+|final\s+|abstract\s+|sealed\s+|non-sealed\s+|strictfp\s+)*(?:@interface|class|interface|enum|record)\s+([A-Za-z_$][\w$]*)/gmu;
@@ -153,42 +177,142 @@ function isWithinRoot(root: string, filename: string): boolean {
   return filename.startsWith(`${root}${path.sep}`);
 }
 
-async function* javaFiles(root: string): AsyncGenerator<string> {
-  const modules = await opendir(root);
-  for await (const moduleEntry of modules) {
-    if (!moduleEntry.isDirectory() || moduleEntry.isSymbolicLink()) {
+interface DirectoryListing {
+  readonly directories: readonly string[];
+  readonly files: readonly string[];
+}
+
+interface JavaSourceFile {
+  readonly filename: string;
+  readonly module: string;
+}
+
+/**
+ * One directory level: the sub-directories worth descending into and the Java files in it. Symbolic
+ * links are never followed, and an unreadable directory is reported as empty rather than failing the
+ * whole walk. The handle is closed by iterating it to the end, so the walk holds one at a time.
+ */
+async function readDirectory(directory: string): Promise<DirectoryListing> {
+  const directories: string[] = [];
+  const files: string[] = [];
+  let handle;
+  try {
+    handle = await opendir(directory);
+  } catch {
+    return { directories, files };
+  }
+  for await (const entry of handle) {
+    if (entry.isSymbolicLink()) {
       continue;
     }
-    const javaRoot = path.join(root, moduleEntry.name, 'src', 'main', 'java');
-    let rootDirectory;
-    try {
-      rootDirectory = await opendir(javaRoot);
-    } catch {
-      continue;
-    }
-    const directories = [rootDirectory];
-    while (directories.length > 0) {
-      const directory = directories.pop();
-      if (directory === undefined) {
-        break;
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIPPED_DIRECTORIES.has(entry.name)) {
+        directories.push(entryPath);
       }
-      for await (const entry of directory) {
-        if (entry.isSymbolicLink()) {
-          continue;
-        }
-        const entryPath = path.join(directory.path, entry.name);
-        if (entry.isDirectory()) {
-          directories.push(await opendir(entryPath));
-        } else if (entry.isFile() && entry.name.endsWith('.java')) {
-          const canonical = await realpath(entryPath);
-          if (!isWithinRoot(root, canonical)) {
-            throw new LimitError('Source file escaped the configured checkout');
-          }
-          yield canonical;
-        }
-      }
+    } else if (entry.isFile() && entry.name.endsWith('.java')) {
+      files.push(entryPath);
     }
   }
+  return { directories, files };
+}
+
+function relativeSegments(root: string, directory: string): readonly string[] {
+  const relative = path.relative(root, directory);
+  return relative === '' ? [] : relative.split(path.sep);
+}
+
+function isJavaSourceRoot(segments: readonly string[]): boolean {
+  const offset = segments.length - JAVA_SOURCE_SEGMENTS.length;
+  return (
+    offset > 0 &&
+    JAVA_SOURCE_SEGMENTS.every((segment, index) => segments[offset + index] === segment)
+  );
+}
+
+/** `spark/v3.5/spark/src/main/java` identifies the module `spark/v3.5/spark`. */
+function moduleName(segments: readonly string[]): string {
+  return segments.slice(0, -JAVA_SOURCE_SEGMENTS.length).join('/');
+}
+
+async function* javaFilesUnder(
+  root: string,
+  javaRoot: string,
+  module: string,
+): AsyncGenerator<JavaSourceFile> {
+  const pending: string[] = [javaRoot];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) {
+      break;
+    }
+    const listing = await readDirectory(current);
+    for (const file of listing.files) {
+      const canonical = await realpath(file);
+      if (!isWithinRoot(root, canonical)) {
+        throw new LimitError('Source file escaped the configured checkout');
+      }
+      yield { filename: canonical, module };
+    }
+    pending.push(...listing.directories);
+  }
+}
+
+/**
+ * Every `src/main/java` root in the checkout, at any depth. Iceberg keeps the engine integrations
+ * most callers ask about in versioned sub-modules such as `spark/v3.5/spark`, so a walk that only
+ * looked at `<root>/<module>/src/main/java` missed roughly two thirds of the production sources.
+ */
+async function* javaFiles(root: string): AsyncGenerator<JavaSourceFile> {
+  const pending: string[] = [root];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) {
+      break;
+    }
+    const segments = relativeSegments(root, current);
+    if (isJavaSourceRoot(segments)) {
+      yield* javaFilesUnder(root, current, moduleName(segments));
+      continue;
+    }
+    const listing = await readDirectory(current);
+    for (const child of listing.directories) {
+      // A production source root is always `src/main/java`, so no sibling of `main` — `src/test`,
+      // `src/jmh`, `src/integration` — can hold one.
+      if (segments.at(-1) === 'src' && path.basename(child) !== 'main') {
+        continue;
+      }
+      pending.push(child);
+    }
+  }
+}
+
+/**
+ * The modules Iceberg's RevAPI configuration checks for binary compatibility, read from the
+ * checkout's own `.palantir/revapi.yml` (`org.apache.iceberg:iceberg-core:` names the `core`
+ * module). Falls back to the built-in list when the file is missing, unreadable, oversized, or
+ * carries no recognisable coordinates.
+ */
+async function readStableModules(root: string): Promise<ReadonlySet<string>> {
+  let text: string;
+  try {
+    const handle = await open(path.join(root, REVAPI_RELATIVE_PATH), 'r');
+    try {
+      const metadata = await handle.stat();
+      if (metadata.size > REVAPI_MAX_BYTES) {
+        return STABLE_MODULES;
+      }
+      text = await handle.readFile('utf8');
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return STABLE_MODULES;
+  }
+  const modules = new Set(
+    [...text.matchAll(REVAPI_MODULE_PATTERN)].map((match) => match[1] ?? '').filter(Boolean),
+  );
+  return modules.size > 0 ? modules : STABLE_MODULES;
 }
 
 async function readJavaFile(root: string, filename: string): Promise<string> {
@@ -346,8 +470,9 @@ export class SourceProvider {
 
   async #buildIndex(): Promise<SourceIndex> {
     const records: SourceTypeRecord[] = [];
+    const stableModules = await readStableModules(this.#root);
     let fileCount = 0;
-    for await (const filename of javaFiles(this.#root)) {
+    for await (const { filename, module } of javaFiles(this.#root)) {
       fileCount += 1;
       if (fileCount > JAVA_FILE_LIMIT) {
         throw new LimitError(`Source checkout contains more than ${JAVA_FILE_LIMIT} Java files`);
@@ -362,7 +487,6 @@ export class SourceProvider {
       if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
         throw new LimitError('Source file escaped the configured checkout');
       }
-      const module = relativePath.split(path.sep, 1)[0] ?? '';
       const topLevelName = path.basename(filename, '.java');
       if (!/^[A-Za-z_$][\w$]*$/u.test(topLevelName)) {
         continue;
@@ -376,7 +500,7 @@ export class SourceProvider {
         module,
         packageName,
         relativePath,
-        stableModule: STABLE_MODULES.has(module),
+        stableModule: stableModules.has(module),
       });
     }
     records.sort((left, right) => left.fullyQualifiedName.localeCompare(right.fullyQualifiedName));
@@ -385,6 +509,7 @@ export class SourceProvider {
       files: records,
       identity: await sourceIdentity(this.#root),
       loadedAt: new Date(),
+      stableModules,
     };
   }
 

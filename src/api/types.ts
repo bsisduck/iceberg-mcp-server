@@ -71,4 +71,9 @@ export interface SourceIndex {
   readonly files: readonly SourceTypeRecord[];
   readonly identity: SourceIdentity;
   readonly loadedAt: Date;
+  /**
+   * The modules RevAPI checks for binary compatibility, derived from the checkout. A filter over the
+   * indexed records rather than a boundary on what is indexed.
+   */
+  readonly stableModules: ReadonlySet<string>;
 }

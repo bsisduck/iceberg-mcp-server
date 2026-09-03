@@ -128,13 +128,24 @@ count. Individual HTML pages have separate byte and TTL limits.
 
 ### Source provider
 
-The provider walks `*/src/main/java/**/*.java` from a canonical configured root. It does not follow
-directory symlinks. It records:
+The provider walks every `src/main/java` root in the checkout, at any depth, from a canonical
+configured root. Iceberg keeps the engine integrations most callers ask about in versioned
+sub-modules such as `spark/v3.5/spark`, `flink/v2.1/flink`, and `kafka-connect/kafka-connect`, so a
+walk restricted to `<root>/<module>/src/main/java` would miss roughly two thirds of the production
+sources. `.git`, `.gradle`, `.idea`, `build`, `node_modules`, `out`, and `target` are skipped, and
+under a `src` directory only `main` is entered, so test and benchmark trees are never read. It does
+not follow directory symlinks. It records:
 
-- module and relative path;
+- module — the path from the checkout root to the source root, such as `spark/v3.5/spark` — and the
+  relative path;
 - declared package;
 - top-level and nested type names discoverable from the source;
 - Git revision and branch when they can be read without mutating the checkout.
+
+The RevAPI-checked module set is read from the checkout's own `.palantir/revapi.yml`
+(`org.apache.iceberg:iceberg-core:` names the `core` module) and falls back to the built-in list
+when that file is missing or unreadable. It classifies indexed records; it is not a boundary on what
+is indexed.
 
 Callers select a fully qualified indexed type. No capability accepts a raw path. Source retrieval
 returns a bounded line window with line numbers and provenance. Lexical implementation search is
@@ -266,7 +277,8 @@ in the tool result and are emitted as one-line JSON diagnostics on stderr. stdou
 - `release`: immutable versioned Javadoc, such as 1.11.0.
 - `nightly`: mutable official Javadoc for Iceberg main; shorter cache TTL.
 - `source`: configured checkout identity derived from Git when available.
-- `stable-module`: source maps to one of the six RevAPI-checked modules.
+- `stable-module`: source maps to a RevAPI-checked module, as declared by the checkout's
+  `.palantir/revapi.yml` (six modules upstream: `api`, `common`, `core`, `data`, `orc`, `parquet`).
 - `public-unclassified`: public Javadoc but no stable-module evidence.
 
 Stability is evidence, not a guarantee synthesized by the MCP server. Results state the

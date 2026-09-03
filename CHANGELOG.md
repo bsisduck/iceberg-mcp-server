@@ -12,6 +12,18 @@ The project is licensed under the MIT License.
 
 ### Changed
 
+- The source index now walks every `src/main/java` root in the checkout instead of only
+  `<root>/<module>/src/main/java`, so the engine integrations Iceberg keeps in versioned sub-modules
+  — `spark/v3.5/spark`, `flink/v2.1/flink`, `kafka-connect/kafka-connect` — are indexed (F31). On
+  the Apache Iceberg checkout this raises the indexed file count from 1,213 to 3,194. A record's
+  `module` is now the path from the checkout root to its source root (`spark/v3.5/spark`) rather
+  than the first path segment. `.git`, `.gradle`, `.idea`, `build`, `node_modules`, `out`, and
+  `target` are skipped, and only `main` is entered under a `src` directory, so test and benchmark
+  trees are not read. The walk holds one directory handle at a time. The RevAPI-checked module set
+  behind the `stable-module` classification is derived from the checkout's `.palantir/revapi.yml`
+  when present (falling back to the built-in `api`, `common`, `core`, `data`, `orc`, `parquet`) and
+  is exposed as `SourceIndex.stableModules`: a filter over the indexed records, not a boundary on
+  the walk.
 - The server name, version, and outbound `User-Agent` are read once from `package.json`
   (`src/version.ts`) instead of being repeated as literals in the server factory, catalog client,
   and Javadoc provider. `SERVER_NAME`, `SERVER_VERSION`, and `USER_AGENT` remain exported from the
