@@ -96,6 +96,49 @@ function omitToken(record: Readonly<Record<string, unknown>>): Record<string, un
   return Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'next-page-token'));
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** `namespace.name` for one Iceberg identifier, or `''` when it names neither part. */
+function identifierPath(namespace: unknown, name: unknown): string {
+  const segments = Array.isArray(namespace) ? namespace.map((segment) => String(segment)) : [];
+  if (typeof name === 'string') {
+    segments.push(name);
+  }
+  return segments.join('.');
+}
+
+/**
+ * The object a call names in its arguments rather than in its path: the source of a rename, and
+ * every table a transaction commit changes. A multi-table commit is the mutation an operator can
+ * least reconstruct from the operation name alone, so all of its tables are named, `;`-separated.
+ */
+function argumentIdentifier(source: unknown): string {
+  const record = asRecord(source);
+  if (record === undefined) {
+    return '';
+  }
+  const changes = record['table_changes'] ?? record['table-changes'];
+  if (Array.isArray(changes)) {
+    return changes
+      .map((change) => {
+        const identifier = asRecord(asRecord(change)?.['identifier']);
+        return identifier === undefined
+          ? ''
+          : identifierPath(identifier['namespace'], identifier['name']);
+      })
+      .filter((entry) => entry !== '')
+      .join(';');
+  }
+  return identifierPath(
+    record['source_namespace'] ?? record['namespace'],
+    record['source_name'] ?? record['name'],
+  );
+}
+
 /**
  * The catalog object a call acted on, for the audit line. Path inputs name it for almost every
  * operation; renames and transaction commits carry it in the arguments instead.
@@ -109,19 +152,8 @@ function auditIdentifier(call: CatalogCall, args: unknown): string {
     }
   }
   // Without tool arguments (an embedder calling the client directly) the body is the next best source.
-  const source = args ?? call.body;
-  if (segments.length === 0 && source !== null && typeof source === 'object') {
-    const record = source as Record<string, unknown>;
-    const namespace = record['source_namespace'] ?? record['namespace'];
-    if (Array.isArray(namespace)) {
-      segments.push(...namespace.map((segment) => String(segment)));
-    }
-    const name = record['source_name'] ?? record['name'];
-    if (typeof name === 'string') {
-      segments.push(name);
-    }
-  }
-  const identifier = segments.join('.');
+  const identifier =
+    segments.length > 0 ? segments.join('.') : argumentIdentifier(args ?? call.body);
   if (identifier === '') {
     return '-';
   }

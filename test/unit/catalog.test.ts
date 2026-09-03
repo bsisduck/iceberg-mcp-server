@@ -1016,6 +1016,99 @@ describe('CatalogClient mutation audit trail', (): void => {
     client.close();
   });
 
+  it('names every table a transaction commit changes', async (): Promise<void> => {
+    const namespace = ['company', 'analytics'];
+    const scripted = scriptedFetch(['POST /v1/{prefix}/transactions/commit'], () =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+    const changes = [
+      { identifier: { name: 'events', namespace }, requirements: [], updates: [] },
+      { identifier: { name: 'orders', namespace }, requirements: [], updates: [] },
+    ];
+
+    await client.call(
+      { body: { 'table-changes': changes }, operationId: 'commitTransaction', path: {} },
+      { args: { table_changes: changes } },
+    );
+
+    expect(auditLines()[0]).toMatchObject({
+      identifier: 'company.analytics.events;company.analytics.orders',
+      operation: 'commitTransaction',
+      outcome: 'success',
+      status: 204,
+    });
+    client.close();
+  });
+
+  it('derives a rename identifier from the source arguments', async (): Promise<void> => {
+    const scripted = scriptedFetch(['POST /v1/{prefix}/tables/rename'], () =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await client.call(
+      {
+        body: {
+          destination: { name: 'events_v2', namespace: ['company', 'analytics'] },
+          source: { name: 'events', namespace: ['company', 'analytics'] },
+        },
+        operationId: 'renameTable',
+        path: {},
+      },
+      {
+        args: {
+          destination_name: 'events_v2',
+          destination_namespace: ['company', 'analytics'],
+          source_name: 'events',
+          source_namespace: ['company', 'analytics'],
+        },
+      },
+    );
+
+    expect(auditLines()[0]).toMatchObject({
+      identifier: 'company.analytics.events',
+      operation: 'renameTable',
+    });
+    client.close();
+  });
+
+  it('falls back to the request body when called without tool arguments', async (): Promise<void> => {
+    const scripted = scriptedFetch(['POST /v1/{prefix}/transactions/commit'], () =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await client.call({
+      body: {
+        'table-changes': [
+          { identifier: { name: 'events', namespace: ['company'] } },
+          { requirements: [] },
+        ],
+      },
+      operationId: 'commitTransaction',
+      path: {},
+    });
+
+    expect(auditLines()[0]).toMatchObject({ identifier: 'company.events' });
+    client.close();
+  });
+
+  it('records a dash when neither the path nor the arguments name an object', async (): Promise<void> => {
+    const scripted = scriptedFetch(['POST /v1/{prefix}/transactions/commit'], () =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await client.call(
+      { body: { 'table-changes': [{ updates: [] }] }, operationId: 'commitTransaction', path: {} },
+      { args: { table_changes: [{ updates: [] }] } },
+    );
+
+    expect(auditLines()[0]).toMatchObject({ identifier: '-' });
+    client.close();
+  });
+
   it('never audits a read', async (): Promise<void> => {
     const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], () =>
       Promise.resolve(jsonResponse({ namespaces: [['analytics']] })),

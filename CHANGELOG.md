@@ -37,11 +37,12 @@ The project is licensed under the MIT License.
 
 - Every non-read catalog call now writes the `catalog.mutation` audit line that `auditLog` already
   defined but nothing emitted (F20): operation id, identifier (from the path inputs, or from the
-  tool arguments for renames and transaction commits), idempotency key, upstream status, outcome —
-  failures included — duration, correlation id, and the redacted tool arguments.
-  `ICEBERG_MCP_LOG_LEVEL=error` suppresses it. `CatalogClient.call` accepts the tool arguments as
-  `{ args }`, `CatalogClient.create` accepts `logLevel`, and the correlation id is now the
-  `x-request-id` sent upstream on every attempt of the call instead of a fresh id per attempt.
+  tool arguments for renames and transaction commits — a commit names every table it changes,
+  `;`-separated), idempotency key, upstream status, outcome — failures included — duration,
+  correlation id, and the redacted tool arguments. `ICEBERG_MCP_LOG_LEVEL=error` suppresses it.
+  `CatalogClient.call` accepts the tool arguments as `{ args }`, `CatalogClient.create` accepts
+  `logLevel`, and the correlation id is now the `x-request-id` sent upstream on every attempt of the
+  call instead of a fresh id per attempt.
 
 - The OAuth refresh margin is now `min(60 s, expires_in / 2)`, so a token with a lifetime of 60 s or
   less is reused instead of being treated as stale on issue and re-fetched on every request (F23).
