@@ -67,9 +67,10 @@ The project is licensed under the MIT License.
   timeouts — for `GET`/`HEAD` and for idempotency-keyed mutations, using the same attempt budget and
   backoff as HTTP 429 and 5xx (F26). `Retry-After` is honoured up to the per-attempt request timeout
   instead of a fixed five-second cap, and a wait that no longer fits the call's retry budget
-  surfaces the upstream error instead of sleeping (F26). The concurrency permit is now acquired per
-  attempt and released while the backoff sleeps, so a queued request no longer waits behind a
-  sleeping one (F26).
+  surfaces the upstream error instead of sleeping (F26). The wait is decided once per attempt, so a
+  `Retry-After` the budget cannot afford ends the call rather than falling back to a shorter backoff
+  the catalog never offered. The concurrency permit is now acquired per attempt and released while
+  the backoff sleeps, so a queued request no longer waits behind a sleeping one (F26).
 - A caller that aborts — during the fetch, while queued for a permit, or during the retry backoff —
   now gets the new `CancelledError` (`type: "CancelledError"`, `retryable: false`, `status: null`)
   instead of a retryable `UpstreamError` 502 (F25, F26). `CatalogClient.call` takes its abort signal

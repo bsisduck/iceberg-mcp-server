@@ -548,6 +548,9 @@ export class CatalogClient {
       request.signal === undefined
         ? controller.signal
         : AbortSignal.any([request.signal, controller.signal]);
+    // The wait is decided once per attempt. A response that asked to be retried after a wait this
+    // call cannot afford must not then be retried on a shorter backoff nobody asked for.
+    let waitDeclined = false;
     try {
       const authorization = await this.#auth.authorization(combined);
       const response = await this.#fetch(request.url, {
@@ -576,6 +579,7 @@ export class CatalogClient {
           cancelBody(response);
           return wait;
         }
+        waitDeclined = true;
       }
       return await this.#result(request.operation, response, request.cursorIdentity);
     } catch (error) {
@@ -583,7 +587,7 @@ export class CatalogClient {
         throw new CancelledError('Catalog request was cancelled', { cause: error });
       }
       const failure = normalizeAttemptError(error, controller.signal);
-      if (canRetry && failure instanceof UpstreamError && failure.retryable) {
+      if (canRetry && !waitDeclined && failure instanceof UpstreamError && failure.retryable) {
         const wait = this.#retryWait(backoffMs(attempt), request.deadline);
         if (wait !== undefined) {
           return wait;

@@ -865,6 +865,25 @@ describe('CatalogClient retries and cancellation', (): void => {
     client.close();
   });
 
+  it('surfaces the upstream error when Retry-After misses the deadline a backoff would fit', async (): Promise<void> => {
+    vi.useFakeTimers();
+    // 5 s of the 6 s budget (2 s timeout x 3 attempts) is spent, so the capped 2 s Retry-After no
+    // longer fits while the 100-149 ms fallback backoff still would.
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], () => {
+      vi.setSystemTime(Date.now() + 5_000);
+      return Promise.resolve(busyResponse('10'));
+    });
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await expect(
+      client.call({ operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } }),
+    ).rejects.toMatchObject({ retryable: true, status: 429, upstreamType: 'TooManyRequests' });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(scripted.attempts()).toBe(1);
+    client.close();
+  });
+
   it('releases its concurrency slot while a retry sleeps', async (): Promise<void> => {
     vi.useFakeTimers();
     const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], (attempt) =>
