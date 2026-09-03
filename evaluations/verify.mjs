@@ -28,6 +28,7 @@ const config = {
     version: '1.11.0',
   },
   limits: { maxResponseChars: 100_000, requestTimeoutMs: 30_000 },
+  logLevel: 'info',
   sourceDir,
   transport: 'http',
 };

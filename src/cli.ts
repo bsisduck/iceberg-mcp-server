@@ -9,7 +9,7 @@ import { loadConfig } from './config.js';
 import { installShutdownHandlers, startRuntime } from './runtime.js';
 import { errorMessage } from './shared/errors.js';
 import { DEFAULT_JAVADOC_VERSION, isIcebergVersion } from './shared/iceberg-version.js';
-import { stderrReporter } from './shared/logging.js';
+import { createStderrReporter } from './shared/logging.js';
 import { SERVER_VERSION } from './version.js';
 
 export const USAGE = `Apache Iceberg MCP Server ${SERVER_VERSION}
@@ -148,8 +148,9 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     env['ICEBERG_MCP_TRANSPORT'] = options.transport;
   }
   const config = await loadConfig(env);
-  const handle = await startRuntime(config, stderrReporter);
-  installShutdownHandlers(handle, stderrReporter);
+  const reporter = createStderrReporter(config.logLevel);
+  const handle = await startRuntime(config, reporter);
+  installShutdownHandlers(handle, reporter);
   if (handle.address !== undefined) {
     process.stderr.write(`Iceberg MCP server listening at ${handle.address.href}\n`);
   }

@@ -27,6 +27,7 @@ describe('loadConfig', (): void => {
     const config = await loadConfig({}, cwd);
 
     expect(config.transport).toBe('stdio');
+    expect(config.logLevel).toBe('info');
     expect(config.javadoc.version).toBe('1.11.0');
     expect(config.javadoc.baseUrl.href).toBe('https://iceberg.apache.org/javadoc/');
     expect(config.sourceDir).toBeUndefined();
@@ -163,6 +164,7 @@ describe('loadConfig', (): void => {
         ICEBERG_MCP_ALLOWED_ORIGINS:
           'http://localhost:4321,http://localhost:4321,http://127.0.0.1:4321',
         ICEBERG_MCP_HOST: '[::1]',
+        ICEBERG_MCP_LOG_LEVEL: 'debug',
         ICEBERG_MCP_MAX_REQUEST_BYTES: '4096',
         ICEBERG_MCP_PORT: '4321',
         ICEBERG_MCP_TRANSPORT: 'http',
@@ -174,6 +176,7 @@ describe('loadConfig', (): void => {
     expect(config.http.allowedOrigins).toEqual(['http://localhost:4321', 'http://127.0.0.1:4321']);
     expect(config.http).toMatchObject({ host: '[::1]', maxRequestBytes: 4096, port: 4321 });
     expect(config.limits).toEqual({ maxResponseChars: 4096, requestTimeoutMs: 1000 });
+    expect(config.logLevel).toBe('debug');
   });
 
   it('requires complete, exclusive catalog authentication and catalog scope', async (): Promise<void> => {
@@ -238,6 +241,7 @@ describe('loadConfig', (): void => {
     [{ ICEBERG_MCP_HOST: 'bad host' }, /not a valid bind/u],
     [{ ICEBERG_MCP_ALLOWED_ORIGINS: 'https://client.example.test/path' }, /exact origins/u],
     [{ ICEBERG_MCP_TRANSPORT: 'tcp' }, /must be stdio or http/u],
+    [{ ICEBERG_MCP_LOG_LEVEL: 'trace' }, /ICEBERG_MCP_LOG_LEVEL must be one of/u],
   ])('rejects invalid environment input %#', async (env, expected): Promise<void> => {
     const cwd = await temporaryDirectory();
     await expect(loadConfig(env, cwd)).rejects.toThrow(expected);

@@ -68,7 +68,7 @@ export function installShutdownHandlers(
     }
     closing = true;
     void handle.close().catch((error: unknown) => {
-      reporter.report(error, 'shutdown');
+      reporter.report(error, 'runtime.shutdown');
       process.exitCode = 1;
     });
   };

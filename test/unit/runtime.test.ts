@@ -39,6 +39,7 @@ function config(transport: 'http' | 'stdio'): AppConfig {
       version: '1.11.0',
     },
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 1_000 },
+    logLevel: 'info',
     sourceDir: undefined,
     transport,
   };
@@ -88,7 +89,7 @@ describe('runtime lifecycle', (): void => {
     await vi.waitFor(() => expect(reporter.report).toHaveBeenCalledOnce());
 
     expect(close).toHaveBeenCalledOnce();
-    expect(reporter.report).toHaveBeenCalledWith(expect.any(Error), 'shutdown');
+    expect(reporter.report).toHaveBeenCalledWith(expect.any(Error), 'runtime.shutdown');
     expect(process.exitCode).toBe(1);
     remove();
   });

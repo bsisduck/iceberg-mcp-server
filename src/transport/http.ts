@@ -113,12 +113,12 @@ export async function startHttp(
   const handler = createMcpHandler(() => createIcebergServer(dependencies), {
     legacy: 'stateless',
     onerror(error): void {
-      reporter.report(error, 'MCP HTTP handler');
+      reporter.report(error, 'transport.http.handler');
     },
   });
   const nodeHandler = toNodeHandler(handler, {
     onerror(error): void {
-      reporter.report(error, 'Node HTTP adapter');
+      reporter.report(error, 'transport.http.adapter');
     },
   });
   const loopback = isLoopbackHost(config.host);
@@ -171,7 +171,7 @@ export async function startHttp(
       }
       await nodeHandler(completeRequest, response);
     })().catch((error: unknown) => {
-      reporter.report(error, 'HTTP request');
+      reporter.report(error, 'transport.http.request');
       if (!response.headersSent) {
         sendJsonRpcError(response, 500, -32_603, 'Internal error');
       } else if (!response.writableEnded) {

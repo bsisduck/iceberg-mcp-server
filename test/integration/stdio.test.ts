@@ -45,6 +45,7 @@ function config(): AppConfig {
       version: '1.11.0',
     },
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 1_000 },
+    logLevel: 'info',
     sourceDir: undefined,
     transport: 'stdio',
   };

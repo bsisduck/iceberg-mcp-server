@@ -1,11 +1,12 @@
 import { format, inspect } from 'node:util';
 
 import { describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 import { AsyncTtlCache } from '../../src/shared/cache.js';
 import { BoundedFetcher, readBounded, readBoundedText } from '../../src/shared/fetch.js';
 import { InputError, LimitError, UpstreamError } from '../../src/shared/errors.js';
-import { stderrReporter } from '../../src/shared/logging.js';
+import { auditLog, createStderrReporter, stderrReporter } from '../../src/shared/logging.js';
 import {
   decodeCursor,
   decodeTokenCursor,
@@ -516,17 +517,127 @@ describe('tool responses', (): void => {
   });
 });
 
-describe('default error logging', (): void => {
-  it('does not print raw unexpected exception details', (): void => {
+function stderrLines(write: MockInstance<typeof process.stderr.write>): Record<string, unknown>[] {
+  return write.mock.calls.map((call) => {
+    const line = String(call[0]);
+    expect(line.endsWith('\n')).toBe(true);
+    expect(line.trimEnd()).not.toContain('\n');
+    return JSON.parse(line) as Record<string, unknown>;
+  });
+}
+
+describe('structured error logging', (): void => {
+  it('records the real message and omits the stack below debug', (): void => {
     const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
-    stderrReporter.report(new Error('Bearer sensitive-token'), 'tool call correlation-id');
+    stderrReporter.report(new InputError('namespace is required'), 'tool.call', 'correlation-id');
 
-    const output = String(write.mock.calls[0]?.[0] ?? '');
-    expect(output).toContain('correlation-id');
-    expect(output).toContain('Unexpected internal error');
-    expect(output).not.toContain('sensitive-token');
-    write.mockRestore();
+    const [entry] = stderrLines(write);
+    expect(entry).toMatchObject({
+      correlation_id: 'correlation-id',
+      error_name: 'InputError',
+      event: 'tool.call',
+      level: 'error',
+      message: 'namespace is required',
+    });
+    expect(entry).not.toHaveProperty('stack');
+    expect(String(entry?.['ts'])).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
+  });
+
+  it('adds a redacted stack only at debug level', (): void => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const error = new Error('failed');
+    error.stack = 'Error: failed\n    at load (authorization: Bearer stack-secret)';
+
+    createStderrReporter('error').report(error, 'transport.stdio');
+    createStderrReporter('info').report(error, 'transport.stdio');
+    createStderrReporter('debug').report(error, 'transport.stdio');
+
+    const entries = stderrLines(write);
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).not.toHaveProperty('stack');
+    expect(entries[1]).not.toHaveProperty('stack');
+    expect(entries[2]?.['stack']).toContain('at load');
+    expect(JSON.stringify(entries)).not.toContain('stack-secret');
+  });
+
+  it('redacts credentials in the message and names non-error throws', (): void => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    stderrReporter.report(new Error('rejected authorization: Bearer sensitive-token'), 'tool.call');
+    stderrReporter.report('boom', 'tool.call');
+
+    const entries = stderrLines(write);
+    expect(entries[0]?.['message']).toBe('rejected authorization: [REDACTED]');
+    expect(JSON.stringify(entries)).not.toContain('sensitive-token');
+    expect(entries[1]).toMatchObject({
+      correlation_id: null,
+      error_name: 'NonErrorThrown',
+      message: 'An unknown error occurred',
+    });
+  });
+});
+
+describe('mutation audit log', (): void => {
+  const mutation = {
+    args: {
+      namespace: ['analytics'],
+      properties: { 'gcs.oauth2.token': 'private', owner: 'data-eng' },
+      token: new Secret('catalog-secret'),
+    },
+    correlationId: 'correlation-id',
+    durationMs: 42,
+    idempotencyKey: '018f0d3e-0000-7000-8000-000000000000',
+    identifier: 'analytics.events',
+    operation: 'dropTable',
+    outcome: 'success',
+    status: 204,
+  } as const;
+
+  it('writes one redacted line per catalog mutation', (): void => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    auditLog(mutation);
+
+    const [entry] = stderrLines(write);
+    expect(entry).toMatchObject({
+      correlation_id: 'correlation-id',
+      duration_ms: 42,
+      event: 'catalog.mutation',
+      idempotency_key: '018f0d3e-0000-7000-8000-000000000000',
+      identifier: 'analytics.events',
+      level: 'info',
+      operation: 'dropTable',
+      outcome: 'success',
+      status: 204,
+    });
+    expect(entry?.['args']).toEqual({
+      namespace: ['analytics'],
+      properties: { 'gcs.oauth2.token': '[REDACTED]', owner: 'data-eng' },
+      token: '[REDACTED]',
+    });
+    expect(JSON.stringify(entry)).not.toContain('catalog-secret');
+    expect(JSON.stringify(entry)).not.toContain('private');
+  });
+
+  it('defaults optional fields and stays silent when only errors are wanted', (): void => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    auditLog(
+      { durationMs: 3, identifier: 'analytics', operation: 'createNamespace', outcome: 'failure' },
+      'debug',
+    );
+    auditLog(mutation, 'error');
+
+    const entries = stderrLines(write);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      args: null,
+      correlation_id: null,
+      idempotency_key: null,
+      outcome: 'failure',
+      status: null,
+    });
   });
 });
 

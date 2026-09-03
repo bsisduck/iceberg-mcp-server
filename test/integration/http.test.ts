@@ -45,6 +45,7 @@ function testConfig(overrides: Partial<AppConfig['http']> = {}): AppConfig {
       version: '1.11.0',
     },
     limits: { maxResponseChars: 30_000, requestTimeoutMs: 15_000 },
+    logLevel: 'info',
     sourceDir: undefined,
     transport: 'http',
   };

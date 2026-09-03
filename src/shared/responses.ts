@@ -39,8 +39,8 @@ function expectedError(error: unknown): boolean {
 function errorBody(error: unknown, reporter: ErrorReporter): ToolErrorBody {
   const expected = expectedError(error);
   const correlationId = expected ? null : randomUUID();
-  if (!expected) {
-    reporter.report(error, `tool call ${correlationId}`);
+  if (correlationId !== null) {
+    reporter.report(error, 'tool.call', correlationId);
   }
   return {
     error: {

@@ -6,6 +6,8 @@ import { z } from 'zod';
 
 import { ConfigurationError } from './shared/errors.js';
 import { DEFAULT_JAVADOC_VERSION, icebergVersionSchema } from './shared/iceberg-version.js';
+import { isLogLevel, LOG_LEVELS } from './shared/logging.js';
+import type { LogLevel } from './shared/logging.js';
 import { Secret } from './shared/secret.js';
 
 export { DEFAULT_JAVADOC_VERSION } from './shared/iceberg-version.js';
@@ -47,6 +49,7 @@ export interface AppConfig {
   readonly http: HttpConfig;
   readonly javadoc: JavadocConfig;
   readonly limits: LimitsConfig;
+  readonly logLevel: LogLevel;
   readonly sourceDir: string | undefined;
   readonly transport: 'http' | 'stdio';
 }
@@ -77,6 +80,14 @@ function parseInteger(
     throw new ConfigurationError(`${name} must be between ${minimum} and ${maximum}`);
   }
   return parsed;
+}
+
+function parseLogLevel(value: string | undefined): LogLevel {
+  const raw = optionalValue(value) ?? 'info';
+  if (!isLogLevel(raw)) {
+    throw new ConfigurationError(`ICEBERG_MCP_LOG_LEVEL must be one of: ${LOG_LEVELS.join(', ')}`);
+  }
+  return raw;
 }
 
 function parseBoolean(name: string, value: string | undefined, defaultValue: boolean): boolean {
@@ -350,6 +361,7 @@ export async function loadConfig(
         120_000,
       ),
     },
+    logLevel: parseLogLevel(env['ICEBERG_MCP_LOG_LEVEL']),
     sourceDir: await resolveSourceDir(env, cwd),
     transport: transportResult.data,
   };

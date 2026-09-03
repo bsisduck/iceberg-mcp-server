@@ -13,6 +13,27 @@ The server reserves stdout for MCP. Collect stderr for startup and structured er
 process handles `SIGINT` and `SIGTERM`, closes its transport, clears provider caches and cached
 credentials, and then exits naturally.
 
+## Logging
+
+Diagnostics are written to stderr as one JSON object per line; the MCP `logging` capability is
+deprecated in the 2026-07-28 specification and is not advertised. `ICEBERG_MCP_LOG_LEVEL` selects
+`error`, `info` (default), or `debug`.
+
+| Line               | Emitted at      | Fields                                                                                                                             |
+| ------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| unexpected error   | every level     | `ts`, `level`, `event`, `correlation_id`, `error_name`, `message`, and `stack` only at `debug`                                     |
+| `catalog.mutation` | `info`, `debug` | `ts`, `level`, `event`, `operation`, `identifier`, `idempotency_key`, `outcome`, `status`, `duration_ms`, `correlation_id`, `args` |
+
+`event` names the source (`tool.call`, `transport.http.request`, `transport.http.handler`,
+`transport.http.adapter`, `transport.stdio`, `runtime.shutdown`). The `correlation_id` on an error
+line is the same identifier the client receives in the tool error body, so a user report can be
+matched to one server-side line without returning any internal detail to the model.
+
+Messages and stacks pass through the text redactor (`Bearer`/`Basic` values, URL userinfo, and
+sensitive `key=value` pairs), and `args` passes through the recursive key redactor, so credentials
+do not reach the log. Stacks are withheld below `debug` because they name internal paths; raise the
+level deliberately and prefer a short window.
+
 ## Local Streamable HTTP
 
 ```sh

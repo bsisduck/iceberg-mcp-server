@@ -51,6 +51,18 @@ The project is licensed under the MIT License.
   `console.log` no longer disclose it. `AppConfig.http.authToken`, `AppConfig.catalog.token`, and
   `AppConfig.catalog.oauth2Credential` changed type from `string | undefined` to
   `Secret | undefined`; embedders read them with `value()`.
+- stderr diagnostics are now one structured JSON line per event. Error lines carry `ts`, `level`,
+  `event`, `correlation_id`, `error_name`, and the real (text-redacted) `message` instead of the
+  previous constant `Unexpected internal error`; a redacted `stack` is added only when
+  `ICEBERG_MCP_LOG_LEVEL=debug`. The new `ICEBERG_MCP_LOG_LEVEL` variable accepts `error`, `info`
+  (default), or `debug` and is threaded from `AppConfig.logLevel` into the reporter the CLI builds.
+  `ErrorReporter.report` takes the correlation id as its own argument, and `event` values are stable
+  names (`tool.call`, `transport.http.request`, `transport.http.handler`, `transport.http.adapter`,
+  `transport.stdio`, `runtime.shutdown`).
+- A new `auditLog` helper writes one `catalog.mutation` line (operation, identifier, idempotency
+  key, outcome, status, duration, correlation id, and recursively redacted arguments) so an operator
+  can reconstruct who changed catalog state. The deprecated MCP `logging` capability is still not
+  advertised.
 
 ### Removed
 

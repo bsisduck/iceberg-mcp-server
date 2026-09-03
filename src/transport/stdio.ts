@@ -15,7 +15,7 @@ export function startStdio(
   return serveStdio(() => createIcebergServer(dependencies), {
     legacy: 'serve',
     onerror(error): void {
-      reporter.report(error, 'stdio transport');
+      reporter.report(error, 'transport.stdio');
     },
     ...(transport === undefined ? {} : { transport }),
   });
