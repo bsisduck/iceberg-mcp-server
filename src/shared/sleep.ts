@@ -1,9 +1,4 @@
-function abortError(signal: AbortSignal): Error {
-  const reason: unknown = signal.reason;
-  return reason instanceof Error
-    ? reason
-    : new DOMException('This operation was aborted', 'AbortError');
-}
+import { abortError } from './errors.js';
 
 /**
  * Abort-aware pause built on the global timer so callers can drive it with fake timers. A signal

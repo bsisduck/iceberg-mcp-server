@@ -66,6 +66,17 @@ export class UpstreamError extends Error {
   }
 }
 
+/**
+ * The error an aborted signal should surface: the caller's own reason when it is an `Error`, and a
+ * standard `AbortError` otherwise, so every abort path rejects with something recognisable.
+ */
+export function abortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  return reason instanceof Error
+    ? reason
+    : new DOMException('This operation was aborted', 'AbortError');
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'An unknown error occurred';
 }

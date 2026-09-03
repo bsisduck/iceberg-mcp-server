@@ -32,6 +32,14 @@ The project is licensed under the MIT License.
   reports `LimitError` instead of an `UpstreamError`, and a catalog body that is not valid UTF-8 is
   a non-retryable `UpstreamError` instead of a retryable generic failure.
 
+- The OAuth refresh margin is now `min(60 s, expires_in / 2)`, so a token with a lifetime of 60 s or
+  less is reused instead of being treated as stale on issue and re-fetched on every request (F23).
+  `expires_in` must be an integer of at least 1; a fractional, zero, or negative value is rejected
+  as an invalid token response. The shared single-flight refresh runs under its own timeout-only
+  `AbortController`, so a caller that cancels no longer fails every other waiter — cancelling
+  callers now only stop their own wait, an already-aborted caller is rejected before any request
+  starts, and a failed refresh clears the in-flight state so the next caller retries (F23).
+
 - A catalog `HEAD` now reports existence for any 2xx status instead of only 204, so a catalog that
   answers `namespaceExists`/`tableExists`/`viewExists` with 200 no longer yields `data: null` (F28).
   The discovered `prefix` is encoded per path segment, so a multi-segment prefix such as `ws/foo`

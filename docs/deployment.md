@@ -133,19 +133,19 @@ instead of truncating valid JSON. Narrow the request or reduce the upstream page
 
 ## Troubleshooting
 
-| Symptom                                   | Likely cause and action                                                                                                      |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Exits with `requires Node.js`             | The runtime is older than the published `engines.node` range; upgrade Node or point the client at a newer runtime.           |
-| Source tool returns a configuration error | Set `ICEBERG_SOURCE_DIR` to a readable Iceberg checkout containing `api/src/main/java`.                                      |
-| Server exits while configuring a catalog  | Verify `/v1/config`, TLS trust, outbound auth, response content type, and warehouse.                                         |
-| Expected catalog tool is missing          | Inspect `iceberg_catalog_get_config`; the endpoint must be advertised/defaulted and mutations may need opt-in.               |
-| HTTP startup rejects a non-loopback host  | Configure both an inbound auth token and an explicit exact origin list.                                                      |
-| HTTP returns 401                          | Send the configured inbound bearer token; it is separate from the outbound catalog token.                                    |
-| HTTP returns 403 or Host validation fails | Use the configured public origin/host and preserve Host through the proxy. Wildcard origins are not supported.               |
-| `LimitError`                              | Retry with a smaller page, member limit, or source window.                                                                   |
-| Cursor mismatch                           | Reuse the cursor with exactly the same query inputs, or omit it to restart pagination.                                       |
-| Older Javadoc fails to load               | Confirm that the published version contains the three standard search index files and is under the configured root.          |
-| OAuth repeatedly reloads                  | Check `expires_in`; tokens with no value default to one hour, while tokens inside the one-minute refresh window are renewed. |
+| Symptom                                   | Likely cause and action                                                                                                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Exits with `requires Node.js`             | The runtime is older than the published `engines.node` range; upgrade Node or point the client at a newer runtime.                                                                         |
+| Source tool returns a configuration error | Set `ICEBERG_SOURCE_DIR` to a readable Iceberg checkout containing `api/src/main/java`.                                                                                                    |
+| Server exits while configuring a catalog  | Verify `/v1/config`, TLS trust, outbound auth, response content type, and warehouse.                                                                                                       |
+| Expected catalog tool is missing          | Inspect `iceberg_catalog_get_config`; the endpoint must be advertised/defaulted and mutations may need opt-in.                                                                             |
+| HTTP startup rejects a non-loopback host  | Configure both an inbound auth token and an explicit exact origin list.                                                                                                                    |
+| HTTP returns 401                          | Send the configured inbound bearer token; it is separate from the outbound catalog token.                                                                                                  |
+| HTTP returns 403 or Host validation fails | Use the configured public origin/host and preserve Host through the proxy. Wildcard origins are not supported.                                                                             |
+| `LimitError`                              | Retry with a smaller page, member limit, or source window.                                                                                                                                 |
+| Cursor mismatch                           | Reuse the cursor with exactly the same query inputs, or omit it to restart pagination.                                                                                                     |
+| Older Javadoc fails to load               | Confirm that the published version contains the three standard search index files and is under the configured root.                                                                        |
+| OAuth repeatedly reloads                  | Check `expires_in`: it must be an integer of at least 1, a missing value defaults to one hour, and a token is renewed once it is inside its refresh window of `min(60 s, expires_in / 2)`. |
 
 For a deployment smoke test, first run `npm run check`, then start without a catalog and inspect MCP
 `tools/list`, `resources/templates/list`, and `prompts/list`. Add the catalog only after the

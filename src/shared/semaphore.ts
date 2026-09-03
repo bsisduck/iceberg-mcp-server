@@ -1,14 +1,9 @@
+import { abortError } from './errors.js';
+
 interface Waiter {
   cleanup: (() => void) | undefined;
   readonly reject: (reason: unknown) => void;
   readonly resolve: () => void;
-}
-
-function abortError(signal: AbortSignal): Error {
-  const reason: unknown = signal.reason;
-  return reason instanceof Error
-    ? reason
-    : new DOMException('This operation was aborted', 'AbortError');
 }
 
 /**

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import { createCatalogAuthProvider } from '../../src/catalog/auth.js';
 import type { CatalogConfig } from '../../src/config.js';
@@ -92,6 +93,9 @@ describe('catalog authentication', (): void => {
   });
 
   it.each([
+    [json({ access_token: 'token', expires_in: 30.5 }), /invalid response/u],
+    [json({ access_token: 'token', expires_in: 0 }), /invalid response/u],
+    [json({ access_token: 'token', expires_in: -30 }), /invalid response/u],
     [json({ error: 'denied' }, 401), /HTTP 401/u],
     [new Response('{}', { headers: { 'content-type': 'text/plain' } }), /content type/u],
     [new Response('{', { headers: { 'content-type': 'application/json' } }), /invalid JSON/u],
@@ -126,5 +130,119 @@ describe('catalog authentication', (): void => {
       });
     });
     await expect(timedOut.authorization()).rejects.toMatchObject({ retryable: true, status: 504 });
+  });
+});
+
+describe('OAuth token refresh', (): void => {
+  afterEach((): void => {
+    vi.useRealTimers();
+  });
+
+  function tokenFetch(expiresIn?: number): Mock<typeof globalThis.fetch> {
+    let issued = 0;
+    return vi.fn<typeof globalThis.fetch>(() => {
+      issued += 1;
+      return Promise.resolve(
+        json({
+          access_token: `issued-${String(issued)}`,
+          ...(expiresIn === undefined ? {} : { expires_in: expiresIn }),
+          token_type: 'Bearer',
+        }),
+      );
+    });
+  }
+
+  it('reuses a short-lived token for half its life instead of refreshing every call', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const fetch = tokenFetch(30);
+    const provider = createCatalogAuthProvider(oauthConfig(), 1_000, fetch);
+
+    expect(await provider.authorization()).toBe('Bearer issued-1');
+    vi.advanceTimersByTime(14_999);
+    expect(await provider.authorization()).toBe('Bearer issued-1');
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1);
+    expect(await provider.authorization()).toBe('Bearer issued-2');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the sixty-second margin for a long-lived token', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const fetch = tokenFetch(3_600);
+    const provider = createCatalogAuthProvider(oauthConfig(), 1_000, fetch);
+
+    expect(await provider.authorization()).toBe('Bearer issued-1');
+    vi.advanceTimersByTime(3_539_999);
+    expect(await provider.authorization()).toBe('Bearer issued-1');
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1);
+    expect(await provider.authorization()).toBe('Bearer issued-2');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes once for concurrent callers after the token expires', async (): Promise<void> => {
+    vi.useFakeTimers();
+    const fetch = tokenFetch(30);
+    const provider = createCatalogAuthProvider(oauthConfig(), 1_000, fetch);
+
+    await provider.authorization();
+    vi.advanceTimersByTime(20_000);
+    const concurrent = await Promise.all([
+      provider.authorization(),
+      provider.authorization(),
+      provider.authorization(),
+    ]);
+
+    expect(concurrent).toEqual(['Bearer issued-2', 'Bearer issued-2', 'Bearer issued-2']);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets the next caller retry after a failed refresh', async (): Promise<void> => {
+    let attempts = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(() => {
+      attempts += 1;
+      return attempts === 1
+        ? Promise.reject(new Error('network down'))
+        : Promise.resolve(json({ access_token: 'recovered', token_type: 'Bearer' }));
+    });
+    const provider = createCatalogAuthProvider(oauthConfig(), 1_000, fetch);
+
+    await expect(provider.authorization()).rejects.toMatchObject({ status: 502 });
+    await expect(provider.authorization()).resolves.toBe('Bearer recovered');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails only the caller that aborts, not the shared refresh', async (): Promise<void> => {
+    const gate: { release: (response: Response) => void } = {
+      release: (): void => undefined,
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          gate.release = resolve;
+        }),
+    );
+    const provider = createCatalogAuthProvider(oauthConfig(), 60_000, fetch);
+    const controller = new AbortController();
+
+    const cancelled = provider.authorization(controller.signal);
+    const patient = provider.authorization();
+    controller.abort();
+
+    await expect(cancelled).rejects.toThrow(/aborted/u);
+    gate.release(json({ access_token: 'shared', token_type: 'Bearer' }));
+
+    await expect(patient).resolves.toBe('Bearer shared');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a caller whose signal is already aborted', async (): Promise<void> => {
+    const fetch = tokenFetch(3_600);
+    const provider = createCatalogAuthProvider(oauthConfig(), 1_000, fetch);
+
+    await expect(provider.authorization(AbortSignal.abort())).rejects.toThrow(/aborted/u);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

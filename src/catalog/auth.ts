@@ -1,15 +1,36 @@
 import { z } from 'zod';
 
 import type { CatalogConfig } from '../config.js';
-import { LimitError, UpstreamError } from '../shared/errors.js';
+import { abortError, LimitError, UpstreamError } from '../shared/errors.js';
 import { cancelBody, readBoundedText } from '../shared/fetch.js';
 import { Secret } from '../shared/secret.js';
 
 const oauthResponseSchema = z.looseObject({
   access_token: z.string().min(1),
-  expires_in: z.number().positive().optional(),
+  expires_in: z.number().int().min(1).optional(),
   token_type: z.string().optional(),
 });
+
+/** The longest a token is refreshed ahead of its expiry; short-lived tokens use half their life. */
+const MAX_REFRESH_MARGIN_MS = 60_000;
+const DEFAULT_EXPIRES_IN_SECONDS = 3_600;
+
+/**
+ * Resolves with the shared refresh, or rejects as soon as this caller's own signal aborts. The
+ * shared request keeps running for everyone else: one caller giving up must not cancel the token
+ * every other caller is waiting for. Callers reject an already-aborted signal before they get here.
+ */
+function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(abortError(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
+  });
+}
 
 export interface CatalogAuthProvider {
   authorization(signal?: AbortSignal): Promise<string | undefined>;
@@ -38,7 +59,8 @@ class OAuthAuthProvider implements CatalogAuthProvider {
   readonly #fetch: typeof globalThis.fetch;
   readonly #timeoutMs: number;
   readonly #uri: URL;
-  #cached: { readonly expiresAt: number; readonly header: string } | undefined;
+  #cached:
+    { readonly expiresAt: number; readonly header: string; readonly marginMs: number } | undefined;
   #loading: Promise<string> | undefined;
 
   public constructor(options: {
@@ -59,14 +81,36 @@ class OAuthAuthProvider implements CatalogAuthProvider {
     this.#uri = new URL(options.uri);
   }
 
-  public async authorization(signal?: AbortSignal): Promise<string> {
-    if (this.#cached !== undefined && this.#cached.expiresAt > Date.now() + 60_000) {
-      return this.#cached.header;
+  public authorization(signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted === true) {
+      return Promise.reject(abortError(signal));
     }
-    this.#loading ??= this.#load(signal).finally(() => {
-      this.#loading = undefined;
+    const cached = this.#cached;
+    if (cached !== undefined && cached.expiresAt > Date.now() + cached.marginMs) {
+      return Promise.resolve(cached.header);
+    }
+    const refresh = this.#refresh();
+    return signal === undefined ? refresh : raceAbort(refresh, signal);
+  }
+
+  /**
+   * Single-flight refresh. Concurrent callers share one token request; a failure clears the shared
+   * state so the next caller starts a fresh attempt instead of replaying the same error.
+   */
+  #refresh(): Promise<string> {
+    const inFlight = this.#loading;
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+    const loading = this.#load().finally(() => {
+      if (this.#loading === loading) {
+        this.#loading = undefined;
+      }
     });
-    return this.#loading;
+    // Every caller may have raced away from this promise; keep its failure from going unhandled.
+    void loading.catch(() => undefined);
+    this.#loading = loading;
+    return loading;
   }
 
   public clear(): void {
@@ -74,14 +118,13 @@ class OAuthAuthProvider implements CatalogAuthProvider {
     this.#clientSecret = undefined;
   }
 
-  async #load(signal: AbortSignal | undefined): Promise<string> {
+  /** Runs under its own timeout controller only, so no caller's signal can cancel it. */
+  async #load(): Promise<string> {
     if (this.#clientSecret === undefined) {
       throw new UpstreamError('OAuth provider is closed', 500, false);
     }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
-    const combined =
-      signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]);
     try {
       const body = new URLSearchParams({
         client_id: this.#clientId,
@@ -97,7 +140,7 @@ class OAuthAuthProvider implements CatalogAuthProvider {
         },
         method: 'POST',
         redirect: 'error',
-        signal: combined,
+        signal: controller.signal,
       });
       if (!response.ok) {
         cancelBody(response);
@@ -137,13 +180,15 @@ class OAuthAuthProvider implements CatalogAuthProvider {
         );
       }
       const header = `Bearer ${parsed.data.access_token}`;
+      const lifetimeMs = (parsed.data.expires_in ?? DEFAULT_EXPIRES_IN_SECONDS) * 1_000;
       this.#cached = {
-        expiresAt: Date.now() + (parsed.data.expires_in ?? 3_600) * 1_000,
+        expiresAt: Date.now() + lifetimeMs,
         header,
+        marginMs: Math.min(MAX_REFRESH_MARGIN_MS, Math.floor(lifetimeMs / 2)),
       };
       return header;
     } catch (error) {
-      if (controller.signal.aborted && !signal?.aborted) {
+      if (controller.signal.aborted) {
         throw new UpstreamError('OAuth token request timed out', 504, true, { cause: error });
       }
       if (!(error instanceof UpstreamError) && !(error instanceof LimitError)) {

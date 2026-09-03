@@ -155,7 +155,8 @@ Requests use:
 - bounded response bytes and concurrency;
 - explicit accepted content types;
 - a sanitized `User-Agent` and request correlation ID;
-- internal bearer/OAuth headers that are never added to results;
+- internal bearer/OAuth headers that are never added to results, refreshed once per expiry by a
+  single-flight client-credentials exchange that no caller's cancellation can fail;
 - retry for safe reads and idempotency-keyed mutations on eligible server errors (429, 5xx) and on
   retryable transport failures such as network errors and per-attempt timeouts, with jitter and
   `Retry-After` honoured up to the per-attempt timeout and only while the call's retry budget (the
