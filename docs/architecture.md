@@ -149,7 +149,8 @@ capability set from advertised endpoints or the spec's documented default set.
 Requests use:
 
 - an operator-configured URI and warehouse only;
-- strict path-segment encoding for namespaces and identifiers;
+- strict path-segment encoding for namespaces, identifiers, and the discovered prefix, so a
+  multi-segment prefix routes as separate segments;
 - a total deadline and abort signal;
 - bounded response bytes and concurrency;
 - explicit accepted content types;

@@ -876,3 +876,52 @@ describe('CatalogClient retries and cancellation', (): void => {
     client.close();
   });
 });
+
+describe('CatalogClient prefixes and existence checks', (): void => {
+  async function pathForPrefix(prefix: string): Promise<string> {
+    const requests: Request[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>((input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      return Promise.resolve(
+        request.url.includes('/v1/config')
+          ? jsonResponse({
+              defaults: {},
+              endpoints: ['GET /v1/{prefix}/namespaces'],
+              overrides: { prefix },
+            })
+          : jsonResponse({ namespaces: [] }),
+      );
+    });
+    const client = await CatalogClient.create({ config: config(), fetch, limits });
+    await client.call({ operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } });
+    client.close();
+    return new URL(requests[1]?.url ?? 'https://invalid').pathname;
+  }
+
+  it.each([
+    ['ws/foo', '/base/v1/ws/foo/namespaces'],
+    ['/ws//foo/', '/base/v1/ws/foo/namespaces'],
+    ['my ws/rest+catalog', '/base/v1/my%20ws/rest%2Bcatalog/namespaces'],
+    ['tenant', '/base/v1/tenant/namespaces'],
+    ['', '/base/v1/namespaces'],
+  ])('encodes the %s prefix per path segment', async (prefix, expected): Promise<void> => {
+    expect(await pathForPrefix(prefix)).toBe(expected);
+  });
+
+  it('treats any successful HEAD status as existence', async (): Promise<void> => {
+    const scripted = scriptedFetch(
+      ['HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table}'],
+      () => Promise.resolve(new Response(null, { status: 200 })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    const exists = await client.call({
+      operationId: 'tableExists',
+      path: { namespace: ['analytics'], table: 'events' },
+    });
+
+    expect(exists).toMatchObject({ data: { exists: true }, status: 200 });
+    client.close();
+  });
+});

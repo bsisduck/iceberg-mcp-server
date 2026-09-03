@@ -87,6 +87,24 @@ function isJsonContent(response: Response): boolean {
   return contentType === 'application/json' || contentType.endsWith('+json');
 }
 
+function isSuccess(status: number): boolean {
+  return status >= 200 && status < 300;
+}
+
+/**
+ * Renders the discovered prefix as path segments. The reference clients encode each segment
+ * separately, so a multi-segment prefix such as `ws/foo` routes to `/v1/ws/foo/...` rather than to
+ * a single `ws%2Ffoo` segment, while a segment that needs escaping is still escaped. Empty segments
+ * from a leading, trailing, or doubled separator are dropped so the path stays well formed.
+ */
+function encodedPrefix(prefix: string): string {
+  const segments = prefix
+    .split('/')
+    .filter((segment) => segment !== '')
+    .map((segment) => encodeURIComponent(segment));
+  return segments.length === 0 ? '' : `/${segments.join('/')}`;
+}
+
 /** `Retry-After` in milliseconds when the catalog sent a delta-seconds value, otherwise undefined. */
 function retryAfterMs(response: Response): number | undefined {
   const value = response.headers.get('retry-after');
@@ -452,9 +470,10 @@ export class CatalogClient {
     response: Response,
     cursorIdentity: unknown,
   ): Promise<CatalogResult> {
-    if (operation.method === 'HEAD' && (response.status === 204 || response.status === 404)) {
+    if (operation.method === 'HEAD' && (isSuccess(response.status) || response.status === 404)) {
+      cancelBody(response);
       return {
-        data: { exists: response.status === 204 },
+        data: { exists: response.status !== 404 },
         next_cursor: null,
         operation_id: operation.id,
         status: response.status,
@@ -496,10 +515,7 @@ export class CatalogClient {
 
   #operationUrl(operation: CatalogOperation, call: CatalogCall): URL {
     let pathname = operation.path;
-    pathname = pathname.replace(
-      '/{prefix}',
-      this.discovery.prefix === '' ? '' : `/${encodeURIComponent(this.discovery.prefix)}`,
-    );
+    pathname = pathname.replace('/{prefix}', encodedPrefix(this.discovery.prefix));
     const placeholders = [...pathname.matchAll(/\{([^}]+)\}/gu)];
     for (const placeholder of placeholders) {
       const name = placeholder[1];

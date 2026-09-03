@@ -32,6 +32,12 @@ The project is licensed under the MIT License.
   reports `LimitError` instead of an `UpstreamError`, and a catalog body that is not valid UTF-8 is
   a non-retryable `UpstreamError` instead of a retryable generic failure.
 
+- A catalog `HEAD` now reports existence for any 2xx status instead of only 204, so a catalog that
+  answers `namespaceExists`/`tableExists`/`viewExists` with 200 no longer yields `data: null` (F28).
+  The discovered `prefix` is encoded per path segment, so a multi-segment prefix such as `ws/foo`
+  routes to `/v1/ws/foo/...` as it does in the reference clients instead of collapsing into one
+  `ws%2Ffoo` segment; empty segments from a leading, trailing, or doubled `/` are dropped (F28).
+
 - The catalog client now retries retryable transport failures — network errors and per-attempt
   timeouts — for `GET`/`HEAD` and for idempotency-keyed mutations, using the same attempt budget and
   backoff as HTTP 429 and 5xx (F26). `Retry-After` is honoured up to the per-attempt request timeout
