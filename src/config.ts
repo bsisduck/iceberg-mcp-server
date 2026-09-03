@@ -104,12 +104,34 @@ function parseBoolean(name: string, value: string | undefined, defaultValue: boo
   throw new ConfigurationError(`${name} must be true or false`);
 }
 
+/** RFC 1123 label syntax, plus the underscore that container DNS names use in practice. */
+const BIND_HOSTNAME =
+  /^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*\.?$/iu;
+/** `::1` and its uncompressed spellings, for example `0:0:0:0:0:0:0:1`. */
+const IPV6_LOOPBACK = /^(?:0*:)+0*1$/u;
+/** IPv4-mapped IPv6, for example `::ffff:127.0.0.1`. */
+const IPV4_MAPPED = /^(?:0*:)+ffff:(\d{1,3}(?:\.\d{1,3}){3})$/u;
+
+/** Strips the brackets that `URL.hostname` and operator input use around an IPv6 literal. */
+function unbracket(hostname: string): string {
+  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+}
+
 function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (normalized === 'localhost' || normalized === '::1') {
+  const normalized = unbracket(hostname).toLowerCase();
+  if (normalized === 'localhost') {
     return true;
   }
-  return isIP(normalized) === 4 && normalized.startsWith('127.');
+  const family = isIP(normalized);
+  if (family === 4) {
+    return normalized.startsWith('127.');
+  }
+  if (family !== 6) {
+    return false;
+  }
+  return (
+    IPV6_LOOPBACK.test(normalized) || IPV4_MAPPED.exec(normalized)?.[1]?.startsWith('127.') === true
+  );
 }
 
 function parseUrl(name: string, value: string, options: { httpsOutsideLoopback: boolean }): URL {
@@ -245,9 +267,19 @@ async function resolveSourceDir(env: NodeJS.ProcessEnv, cwd: string): Promise<st
   return canonical;
 }
 
+/**
+ * Normalizes the bind address so configuration, the loopback classification, and `server.listen`
+ * all read the same value. `net.Server.listen` rejects a bracketed IPv6 literal with `ENOTFOUND`,
+ * so `[::1]` is unwrapped to `::1` here; brackets around anything else are an error.
+ */
 function parseBoundHost(value: string | undefined): string {
-  const host = optionalValue(value) ?? '127.0.0.1';
-  if (host.length > 253 || /[\s/?#]/u.test(host)) {
+  const raw = optionalValue(value) ?? '127.0.0.1';
+  const unwrapped = unbracket(raw);
+  const host = unwrapped.toLowerCase();
+  if (isIP(host) === 6) {
+    return host;
+  }
+  if (unwrapped !== raw || (isIP(host) === 0 && !BIND_HOSTNAME.test(host))) {
     throw new ConfigurationError('ICEBERG_MCP_HOST is not a valid bind hostname or address');
   }
   return host;
@@ -369,4 +401,12 @@ export async function loadConfig(
 
 export function isLoopbackHost(host: string): boolean {
   return isLoopbackHostname(host);
+}
+
+/**
+ * `Host` header spelling of a bind address. IPv6 literals are bracketed in `Host` and in the SDK's
+ * allowed-hostname list, while IPv4 addresses and names are not.
+ */
+export function hostHeaderName(host: string): string {
+  return isIP(host) === 6 ? `[${host}]` : host;
 }

@@ -12,7 +12,7 @@ import {
 
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 
-import { isLoopbackHost } from '../config.js';
+import { hostHeaderName, isLoopbackHost } from '../config.js';
 import type { HttpConfig } from '../config.js';
 import type { ServerDependencies } from '../server.js';
 import { createIcebergServer } from '../server.js';
@@ -125,7 +125,7 @@ export async function startHttp(
   const validateHost = loopback
     ? localhostHostValidation()
     : hostHeaderValidation([
-        config.host,
+        hostHeaderName(config.host),
         ...config.allowedOrigins.map((origin) => new URL(origin).hostname),
       ]);
   const validateOrigin = loopback

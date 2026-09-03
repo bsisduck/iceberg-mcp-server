@@ -161,13 +161,14 @@ troubleshooting.
 | `ICEBERG_OAUTH2_CREDENTIAL[_FILE]` | unset                                     | OAuth `client_id:client_secret`              |
 | `ICEBERG_CATALOG_ALLOW_MUTATIONS`  | `false`                                   | Register catalog mutation tools              |
 | `ICEBERG_MCP_TRANSPORT`            | `stdio`                                   | `stdio` or `http`                            |
-| `ICEBERG_MCP_HOST`                 | `127.0.0.1`                               | HTTP bind host                               |
+| `ICEBERG_MCP_HOST`                 | `127.0.0.1`                               | HTTP bind host; `[::1]` normalizes to `::1`  |
 | `ICEBERG_MCP_PORT`                 | `3000`                                    | HTTP bind port                               |
 | `ICEBERG_MCP_ALLOWED_ORIGINS`      | loopback origins for the port             | Comma-separated exact origins                |
 | `ICEBERG_MCP_AUTH_TOKEN[_FILE]`    | unset                                     | Inbound HTTP bearer token                    |
 | `ICEBERG_MCP_MAX_REQUEST_BYTES`    | `1048576`                                 | HTTP request limit, 4 KiB to 10 MiB          |
 | `ICEBERG_MAX_RESPONSE_CHARS`       | `30000`                                   | Tool/resource output limit, 4,096 to 100,000 |
 | `ICEBERG_REQUEST_TIMEOUT_MS`       | `15000`                                   | Upstream timeout, 1,000 to 120,000 ms        |
+| `ICEBERG_MCP_LOG_LEVEL`            | `info`                                    | stderr detail: `error`, `info`, or `debug`   |
 
 `_FILE` is available for the three secret values and is preferred in deployed environments.
 Supplying both the direct value and its file form is an error. Secrets are loaded at startup, so

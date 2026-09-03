@@ -5,7 +5,7 @@ import { inspect } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../../src/config.js';
+import { hostHeaderName, isLoopbackHost, loadConfig } from '../../src/config.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -174,7 +174,7 @@ describe('loadConfig', (): void => {
     );
 
     expect(config.http.allowedOrigins).toEqual(['http://localhost:4321', 'http://127.0.0.1:4321']);
-    expect(config.http).toMatchObject({ host: '[::1]', maxRequestBytes: 4096, port: 4321 });
+    expect(config.http).toMatchObject({ host: '::1', maxRequestBytes: 4096, port: 4321 });
     expect(config.limits).toEqual({ maxResponseChars: 4096, requestTimeoutMs: 1000 });
     expect(config.logLevel).toBe('debug');
   });
@@ -239,6 +239,9 @@ describe('loadConfig', (): void => {
     [{ ICEBERG_JAVADOC_BASE_URL: 'https://user:pass@docs.example.test' }, /credentials/u],
     [{ ICEBERG_JAVADOC_BASE_URL: 'https://docs.example.test/?query=1' }, /query or fragment/u],
     [{ ICEBERG_MCP_HOST: 'bad host' }, /not a valid bind/u],
+    [{ ICEBERG_MCP_HOST: '[not-an-address]' }, /not a valid bind/u],
+    [{ ICEBERG_MCP_HOST: '[127.0.0.1]' }, /not a valid bind/u],
+    [{ ICEBERG_MCP_HOST: `${'a'.repeat(64)}.example.test` }, /not a valid bind/u],
     [{ ICEBERG_MCP_ALLOWED_ORIGINS: 'https://client.example.test/path' }, /exact origins/u],
     [{ ICEBERG_MCP_TRANSPORT: 'tcp' }, /must be stdio or http/u],
     [{ ICEBERG_MCP_LOG_LEVEL: 'trace' }, /ICEBERG_MCP_LOG_LEVEL must be one of/u],
@@ -270,6 +273,40 @@ describe('loadConfig', (): void => {
     }
     expect(config.http.authToken?.value()).toBe('inbound-secret');
     expect(config.catalog.oauth2Credential?.value()).toBe('client-id:client-secret');
+  });
+
+  it.each([
+    ['[::1]', '::1', true],
+    ['::1', '::1', true],
+    ['0:0:0:0:0:0:0:1', '0:0:0:0:0:0:0:1', true],
+    ['::ffff:127.0.0.1', '::ffff:127.0.0.1', true],
+    ['localhost', 'localhost', true],
+    ['LocalHost', 'localhost', true],
+    ['127.0.0.1', '127.0.0.1', true],
+    ['0.0.0.0', '0.0.0.0', false],
+    ['catalog-host.example.test', 'catalog-host.example.test', false],
+  ])(
+    'normalizes bind host %s and classifies loopback consistently',
+    async (input, expected, loopback): Promise<void> => {
+      const cwd = await temporaryDirectory();
+      const env: NodeJS.ProcessEnv = { ICEBERG_MCP_HOST: input, ICEBERG_MCP_TRANSPORT: 'http' };
+      if (!loopback) {
+        env['ICEBERG_MCP_ALLOWED_ORIGINS'] = 'https://client.example.test';
+        env['ICEBERG_MCP_AUTH_TOKEN'] = 'inbound-secret';
+      }
+
+      const config = await loadConfig(env, cwd);
+
+      expect(config.http.host).toBe(expected);
+      expect(isLoopbackHost(config.http.host)).toBe(loopback);
+    },
+  );
+
+  it('brackets only IPv6 literals for Host header comparison', (): void => {
+    expect(hostHeaderName('::1')).toBe('[::1]');
+    expect(hostHeaderName('2001:db8::1')).toBe('[2001:db8::1]');
+    expect(hostHeaderName('127.0.0.1')).toBe('127.0.0.1');
+    expect(hostHeaderName('catalog-host.example.test')).toBe('catalog-host.example.test');
   });
 
   it('caps the configured origin count', async (): Promise<void> => {

@@ -63,6 +63,12 @@ The project is licensed under the MIT License.
   key, outcome, status, duration, correlation id, and recursively redacted arguments) so an operator
   can reconstruct who changed catalog state. The deprecated MCP `logging` capability is still not
   advertised.
+- `ICEBERG_MCP_HOST` is normalized before it is used. A bracketed IPv6 literal such as `[::1]` is
+  unwrapped to `::1`, which is what `server.listen` accepts (`[::1]` failed with `ENOTFOUND` after
+  configuration had already accepted it), and the value is lower-cased and validated with `net.isIP`
+  or a hostname pattern. `::ffff:127.0.0.1` and uncompressed spellings of `::1` are now classified
+  as loopback, so configuration, the loopback rules, and the bind all agree. IPv6 bind addresses are
+  re-bracketed for `Host` header comparison.
 
 ### Removed
 
