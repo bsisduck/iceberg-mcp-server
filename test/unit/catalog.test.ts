@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 import type { CatalogConfig, LimitsConfig } from '../../src/config.js';
 import { CancelledError } from '../../src/shared/errors.js';
@@ -69,6 +70,19 @@ function scriptedFetch(
     return answer(attempt, request);
   });
   return { attempts: (): number => attempt, fetch };
+}
+
+/** Mutations write audit lines to stderr; capture them instead of polluting the test output. */
+let stderr: MockInstance<typeof process.stderr.write>;
+
+beforeEach((): void => {
+  stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+});
+
+function auditLines(): Record<string, unknown>[] {
+  return stderr.mock.calls
+    .map((call) => JSON.parse(String(call[0])) as Record<string, unknown>)
+    .filter((entry) => entry['event'] === 'catalog.mutation');
 }
 
 describe('catalog operation coverage', (): void => {
@@ -922,6 +936,117 @@ describe('CatalogClient prefixes and existence checks', (): void => {
     });
 
     expect(exists).toMatchObject({ data: { exists: true }, status: 200 });
+    client.close();
+  });
+});
+
+describe('CatalogClient mutation audit trail', (): void => {
+  it('records one redacted line per mutation, including the correlated request id', async (): Promise<void> => {
+    const requests: Request[] = [];
+    const scripted = scriptedFetch(
+      ['POST /v1/{prefix}/namespaces'],
+      (_attempt, request) => {
+        requests.push(request);
+        return Promise.resolve(jsonResponse({ namespace: ['analytics'], properties: {} }));
+      },
+      { 'idempotency-key-lifetime': 'PT30M' },
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await client.call(
+      {
+        body: { namespace: ['analytics'], properties: { 's3.secret-access-key': 'AKIA-SECRET' } },
+        operationId: 'createNamespace',
+        path: {},
+      },
+      {
+        args: {
+          namespace: ['analytics'],
+          properties: { owner: 'data-eng', 's3.secret-access-key': 'AKIA-SECRET' },
+        },
+      },
+    );
+
+    const [entry] = auditLines();
+    expect(entry).toMatchObject({
+      identifier: 'analytics',
+      level: 'info',
+      operation: 'createNamespace',
+      outcome: 'success',
+      status: 200,
+    });
+    expect(entry?.['duration_ms']).toEqual(expect.any(Number));
+    expect(entry?.['idempotency_key']).toBe(requests[0]?.headers.get('idempotency-key'));
+    expect(entry?.['correlation_id']).toBe(requests[0]?.headers.get('x-request-id'));
+    expect(entry?.['args']).toEqual({
+      namespace: ['analytics'],
+      properties: { owner: 'data-eng', 's3.secret-access-key': '[REDACTED]' },
+    });
+    expect(JSON.stringify(entry)).not.toContain('AKIA-SECRET');
+    expect(JSON.stringify(entry)).not.toContain('catalog-secret');
+    client.close();
+  });
+
+  it('records failures with the upstream status and derives the identifier from the path', async (): Promise<void> => {
+    const scripted = scriptedFetch(
+      ['DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table}'],
+      () =>
+        Promise.resolve(
+          jsonResponse(
+            { error: { code: 404, message: 'no such table', type: 'NoSuchTableException' } },
+            404,
+          ),
+        ),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await expect(
+      client.call({
+        operationId: 'dropTable',
+        path: { namespace: ['company', 'analytics'], table: 'events' },
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+
+    expect(auditLines()[0]).toMatchObject({
+      identifier: 'company.analytics.events',
+      operation: 'dropTable',
+      outcome: 'failure',
+      status: 404,
+    });
+    client.close();
+  });
+
+  it('never audits a read', async (): Promise<void> => {
+    const scripted = scriptedFetch(['GET /v1/{prefix}/namespaces'], () =>
+      Promise.resolve(jsonResponse({ namespaces: [['analytics']] })),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    await client.call({ operationId: 'listNamespaces', path: {}, query: { pageSize: 10 } });
+    await client.call({ operationId: 'getConfig', path: {} });
+
+    expect(auditLines()).toHaveLength(0);
+    client.close();
+  });
+
+  it('stays silent when the operator only wants error diagnostics', async (): Promise<void> => {
+    const scripted = scriptedFetch(['POST /v1/{prefix}/namespaces'], () =>
+      Promise.resolve(jsonResponse({ namespace: ['analytics'], properties: {} })),
+    );
+    const client = await CatalogClient.create({
+      config: config(),
+      fetch: scripted.fetch,
+      limits,
+      logLevel: 'error',
+    });
+
+    await client.call({
+      body: { namespace: ['analytics'] },
+      operationId: 'createNamespace',
+      path: {},
+    });
+
+    expect(auditLines()).toHaveLength(0);
     client.close();
   });
 });

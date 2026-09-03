@@ -24,6 +24,13 @@ deprecated in the 2026-07-28 specification and is not advertised. `ICEBERG_MCP_L
 | unexpected error   | every level     | `ts`, `level`, `event`, `correlation_id`, `error_name`, `message`, and `stack` only at `debug`                                     |
 | `catalog.mutation` | `info`, `debug` | `ts`, `level`, `event`, `operation`, `identifier`, `idempotency_key`, `outcome`, `status`, `duration_ms`, `correlation_id`, `args` |
 
+A `catalog.mutation` line is written for every non-read catalog call, successful or failed, before
+its result reaches the model. `identifier` names the object from the path inputs (namespace, table,
+view, function, plan) or, for renames and transaction commits, from the tool arguments; `status` is
+the upstream HTTP status, or `null` when the call never got one; `correlation_id` is the
+`x-request-id` sent upstream on every attempt of that call, so a catalog access log and this line
+describe the same request.
+
 `event` names the source (`tool.call`, `transport.http.request`, `transport.http.handler`,
 `transport.http.adapter`, `transport.stdio`, `runtime.shutdown`). The `correlation_id` on an error
 line is the same identifier the client receives in the tool error body, so a user report can be

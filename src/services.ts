@@ -21,7 +21,11 @@ export async function createServices(config: AppConfig): Promise<Services> {
   const catalog =
     config.catalog.uri === undefined
       ? undefined
-      : await CatalogClient.create({ config: config.catalog, limits: config.limits });
+      : await CatalogClient.create({
+          config: config.catalog,
+          limits: config.limits,
+          logLevel: config.logLevel,
+        });
   return {
     api,
     catalog,

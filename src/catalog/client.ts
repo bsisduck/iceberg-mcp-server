@@ -5,6 +5,8 @@ import { z } from 'zod';
 import type { CatalogConfig, LimitsConfig } from '../config.js';
 import { CancelledError, CapabilityError, LimitError, UpstreamError } from '../shared/errors.js';
 import { cancelBody, readBoundedText } from '../shared/fetch.js';
+import { auditLog } from '../shared/logging.js';
+import type { LogLevel } from '../shared/logging.js';
 import { decodeTokenCursor, encodeTokenCursor } from '../shared/pagination.js';
 import { redactSecrets } from '../shared/redaction.js';
 import { Semaphore } from '../shared/semaphore.js';
@@ -32,6 +34,9 @@ const errorResponseSchema = z.looseObject({
 });
 const MAX_CATALOG_REQUEST_BYTES = 1_048_576;
 const MAX_CATALOG_ATTEMPTS = 3;
+const MAX_AUDIT_IDENTIFIER_CHARS = 512;
+/** Path inputs that name the catalog object a call acts on, in the order they read best. */
+const AUDIT_IDENTIFIER_KEYS = ['namespace', 'table', 'view', 'function', 'plan-id'] as const;
 
 function normalizedBaseUri(uri: URL): URL {
   const base = new URL(uri);
@@ -85,6 +90,40 @@ function parseJson(text: string, label: string): unknown {
 function isJsonContent(response: Response): boolean {
   const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim() ?? '';
   return contentType === 'application/json' || contentType.endsWith('+json');
+}
+
+/**
+ * The catalog object a call acted on, for the audit line. Path inputs name it for almost every
+ * operation; renames and transaction commits carry it in the arguments instead.
+ */
+function auditIdentifier(call: CatalogCall, args: unknown): string {
+  const segments: string[] = [];
+  for (const key of AUDIT_IDENTIFIER_KEYS) {
+    const value = call.path[key];
+    if (value !== undefined) {
+      segments.push(...(typeof value === 'string' ? [value] : value));
+    }
+  }
+  // Without tool arguments (an embedder calling the client directly) the body is the next best source.
+  const source = args ?? call.body;
+  if (segments.length === 0 && source !== null && typeof source === 'object') {
+    const record = source as Record<string, unknown>;
+    const namespace = record['source_namespace'] ?? record['namespace'];
+    if (Array.isArray(namespace)) {
+      segments.push(...namespace.map((segment) => String(segment)));
+    }
+    const name = record['source_name'] ?? record['name'];
+    if (typeof name === 'string') {
+      segments.push(name);
+    }
+  }
+  const identifier = segments.join('.');
+  if (identifier === '') {
+    return '-';
+  }
+  return identifier.length > MAX_AUDIT_IDENTIFIER_CHARS
+    ? `${identifier.slice(0, MAX_AUDIT_IDENTIFIER_CHARS)}…`
+    : identifier;
 }
 
 function isSuccess(status: number): boolean {
@@ -156,9 +195,13 @@ export interface CatalogClientOptions {
   readonly config: CatalogConfig;
   readonly fetch?: typeof globalThis.fetch | undefined;
   readonly limits: LimitsConfig;
+  /** Gates the mutation audit trail; `error` suppresses it. Defaults to `info`. */
+  readonly logLevel?: LogLevel | undefined;
 }
 
 export interface CatalogCallOptions {
+  /** The model-facing tool arguments, recorded (redacted) on the audit line for a mutation. */
+  readonly args?: unknown;
   /** Caller cancellation: aborts the in-flight fetch, the queued permit, and the retry backoff. */
   readonly signal?: AbortSignal | undefined;
 }
@@ -181,6 +224,7 @@ export class CatalogClient {
   readonly #baseUri: URL;
   readonly #fetch: typeof globalThis.fetch;
   readonly #limits: LimitsConfig;
+  readonly #logLevel: LogLevel;
   readonly #semaphore = new Semaphore(8);
   readonly discovery: CatalogDiscovery;
 
@@ -196,6 +240,7 @@ export class CatalogClient {
     this.#baseUri = normalizedBaseUri(options.config.uri);
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#limits = options.limits;
+    this.#logLevel = options.logLevel ?? 'info';
     this.discovery = discovery;
   }
 
@@ -353,18 +398,62 @@ export class CatalogClient {
         ? uuidV7()
         : undefined;
     const attempts = canRetryWithoutKey || idempotencyKey !== undefined ? MAX_CATALOG_ATTEMPTS : 1;
-    return this.#run({
+    const startedAt = Date.now();
+    const request: CatalogRequest = {
       attempts,
       body,
       correlationId: randomUUID(),
       cursorIdentity,
       // Retries share one budget: the per-attempt timeout multiplied by the attempt allowance.
-      deadline: Date.now() + this.#limits.requestTimeoutMs * attempts,
+      deadline: startedAt + this.#limits.requestTimeoutMs * attempts,
       idempotencyKey,
       operation,
       signal: options.signal,
       url,
-    });
+    };
+    // Reads are not audited: the trail exists to answer "who changed this catalog object".
+    if (operation.mode === 'read') {
+      return this.#run(request);
+    }
+    try {
+      const result = await this.#run(request);
+      this.#audit(request, call, options.args, startedAt, 'success', result.status);
+      return result;
+    } catch (error) {
+      this.#audit(
+        request,
+        call,
+        options.args,
+        startedAt,
+        'failure',
+        error instanceof UpstreamError ? error.status : undefined,
+      );
+      throw error;
+    }
+  }
+
+  /** One `catalog.mutation` line per attempted change, successful or not. */
+  #audit(
+    request: CatalogRequest,
+    call: CatalogCall,
+    args: unknown,
+    startedAt: number,
+    outcome: 'failure' | 'success',
+    status: number | undefined,
+  ): void {
+    auditLog(
+      {
+        args: args ?? { body: call.body, path: call.path, query: call.query },
+        correlationId: request.correlationId,
+        durationMs: Date.now() - startedAt,
+        idempotencyKey: request.idempotencyKey,
+        identifier: auditIdentifier(call, args),
+        operation: request.operation.id,
+        outcome,
+        status,
+      },
+      this.#logLevel,
+    );
   }
 
   /**

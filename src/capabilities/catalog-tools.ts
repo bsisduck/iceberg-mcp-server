@@ -678,7 +678,7 @@ export function registerCatalogTools(
       async (rawArgs) => {
         const args = definition.inputSchema.parse(rawArgs);
         return executeTool(
-          () => client.call(definition.build(args)),
+          () => client.call(definition.build(args), { args }),
           (result) =>
             `${definition.title} completed with HTTP ${result.status}${result.next_cursor === null ? '.' : '; another page is available.'}`,
           reporter,
