@@ -42,7 +42,9 @@ The project is licensed under the MIT License.
   correlation id, and the redacted tool arguments. `ICEBERG_MCP_LOG_LEVEL=error` suppresses it.
   `CatalogClient.call` accepts the tool arguments as `{ args }`, `CatalogClient.create` accepts
   `logLevel`, and the correlation id is now the `x-request-id` sent upstream on every attempt of the
-  call instead of a fresh id per attempt.
+  call instead of a fresh id per attempt. The audited `status` is the last status the catalog itself
+  returned and is `null` when it never answered, so a transport failure or timeout is no longer
+  recorded as an upstream 502 or 504 even though the caller still receives one.
 
 - The OAuth refresh margin is now `min(60 s, expires_in / 2)`, so a token with a lifetime of 60 s or
   less is reused instead of being treated as stale on issue and re-fetched on every request (F23).

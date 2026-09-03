@@ -1016,6 +1016,26 @@ describe('CatalogClient mutation audit trail', (): void => {
     client.close();
   });
 
+  it('records no status when the catalog never answered', async (): Promise<void> => {
+    const scripted = scriptedFetch(['POST /v1/{prefix}/namespaces'], () =>
+      Promise.reject(new TypeError('fetch failed')),
+    );
+    const client = await CatalogClient.create({ config: config(), fetch: scripted.fetch, limits });
+
+    // The caller still gets the synthesised 502; the trail must not claim the catalog sent one.
+    await expect(
+      client.call({ body: { namespace: ['analytics'] }, operationId: 'createNamespace', path: {} }),
+    ).rejects.toMatchObject({ status: 502 });
+
+    expect(auditLines()[0]).toMatchObject({
+      identifier: 'analytics',
+      operation: 'createNamespace',
+      outcome: 'failure',
+      status: null,
+    });
+    client.close();
+  });
+
   it('names every table a transaction commit changes', async (): Promise<void> => {
     const namespace = ['company', 'analytics'];
     const scripted = scriptedFetch(['POST /v1/{prefix}/transactions/commit'], () =>

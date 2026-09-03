@@ -250,6 +250,8 @@ interface CatalogRequest {
   readonly cursorIdentity: unknown;
   readonly deadline: number;
   readonly idempotencyKey: string | undefined;
+  /** The last status the catalog itself returned on this call; absent when it never answered. */
+  readonly observed: { status: number | undefined };
   readonly operation: CatalogOperation;
   readonly signal: AbortSignal | undefined;
   readonly url: URL;
@@ -443,6 +445,7 @@ export class CatalogClient {
       // Retries share one budget: the per-attempt timeout multiplied by the attempt allowance.
       deadline: startedAt + this.#limits.requestTimeoutMs * attempts,
       idempotencyKey,
+      observed: { status: undefined },
       operation,
       signal: options.signal,
       url,
@@ -453,17 +456,10 @@ export class CatalogClient {
     }
     try {
       const result = await this.#run(request);
-      this.#audit(request, call, options.args, startedAt, 'success', result.status);
+      this.#audit(request, call, options.args, startedAt, 'success');
       return result;
     } catch (error) {
-      this.#audit(
-        request,
-        call,
-        options.args,
-        startedAt,
-        'failure',
-        error instanceof UpstreamError ? error.status : undefined,
-      );
+      this.#audit(request, call, options.args, startedAt, 'failure');
       throw error;
     }
   }
@@ -475,7 +471,6 @@ export class CatalogClient {
     args: unknown,
     startedAt: number,
     outcome: 'failure' | 'success',
-    status: number | undefined,
   ): void {
     auditLog(
       {
@@ -486,7 +481,9 @@ export class CatalogClient {
         identifier: auditIdentifier(call, args),
         operation: request.operation.id,
         outcome,
-        status,
+        // Only a status the catalog itself sent: a transport failure or a per-attempt timeout
+        // synthesises 502/504 for the caller, which here would read as an upstream answer.
+        status: request.observed.status,
       },
       this.#logLevel,
     );
@@ -552,6 +549,7 @@ export class CatalogClient {
         redirect: 'error',
         signal: combined,
       });
+      request.observed.status = response.status;
       if ((response.status === 429 || response.status >= 500) && canRetry) {
         const wait = this.#retryWait(
           retryAfterMs(response) ?? backoffMs(attempt),

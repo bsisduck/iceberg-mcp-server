@@ -27,9 +27,12 @@ deprecated in the 2026-07-28 specification and is not advertised. `ICEBERG_MCP_L
 A `catalog.mutation` line is written for every non-read catalog call, successful or failed, before
 its result reaches the model. `identifier` names the object from the path inputs (namespace, table,
 view, function, plan) or, for renames and transaction commits, from the tool arguments, where a
-transaction commit names every table it changes, separated by `;`; `status` is the upstream HTTP
-status, or `null` when the call never got one; `correlation_id` is the `x-request-id` sent upstream
-on every attempt of that call, so a catalog access log and this line describe the same request.
+transaction commit names every table it changes, separated by `;`; `status` is the last HTTP status
+the catalog itself returned, or `null` when the call never got a response — a network failure or a
+per-attempt timeout still surfaces a synthesised 502 or 504 to the caller, but the trail records
+`null` so an operator can tell "the catalog refused this" from "the catalog was never reached";
+`correlation_id` is the `x-request-id` sent upstream on every attempt of that call, so a catalog
+access log and this line describe the same request.
 
 `event` names the source (`tool.call`, `transport.http.request`, `transport.http.handler`,
 `transport.http.adapter`, `transport.stdio`, `runtime.shutdown`). The `correlation_id` on an error
