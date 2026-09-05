@@ -57,6 +57,14 @@
     "rest-catalog"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bsisduck/iceberg-mcp-server.git"
+  },
+  "homepage": "https://github.com/bsisduck/iceberg-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/bsisduck/iceberg-mcp-server/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",

@@ -8,11 +8,11 @@ catalog is secure or conforming.
 
 ## September 5 follow-up verification
 
-The cache limit regression found after the initial audit is fixed in commit `182f25c`. Disk reads
+The cache limit regression found after the initial audit is fixed in commit `190b320`. Disk reads
 apply the current document limit before allocating the body. Oversized entries are treated as misses
 and fetched without conditional validators, so a fresh hit or a `304` cannot bypass a lowered limit.
 Regression tests also cover exact byte boundaries, malformed entries, and a smaller upstream
-replacement. Commit `610c51d` updates the live evaluation verifier to use the server's configuration
+replacement. Commit `109008c` updates the live evaluation verifier to use the server's configuration
 loader, including the current limits.
 
 The updated branch passed:
@@ -180,9 +180,21 @@ The completion audit added or verified controls for:
 - The CI YAML was parsed locally and its commands passed on Node.js 22. A hosted CI result is only
   possible after the repository is published.
 
-The project has no Git remote yet, so `package.json` cannot contain an accurate `repository`,
-`homepage`, or `bugs` URL. Repository badges and host-level private vulnerability reporting also
-depend on that URL and should be configured during publication.
+The repository is hosted at
+[bsisduck/iceberg-mcp-server](https://github.com/bsisduck/iceberg-mcp-server) and is private for
+initial publication. Package metadata contains the matching repository, README, and issue URLs.
+Hosted check results are available through
+[GitHub Actions](https://github.com/bsisduck/iceberg-mcp-server/actions).
+
+Before the first push, Gitleaks 8.30.1 scanned the complete history without finding secrets. A
+separate review of all 420 historical file versions found no personal filesystem paths, private data
+files, or blobs over 1 MB. Email-like matches in tests are dummy URL credentials used to verify
+rejection and redaction. Commit authors and committers use the GitHub noreply address; the original
+personal email was removed before publication. A recovery bundle stays outside the repository.
+
+The README includes a universal installation prompt that clones the repository, selects the current
+MCP client, preserves unrelated settings, and verifies the connection. It works without substituting
+local paths; access to the private repository still requires an authorized GitHub account.
 
 No credentials, generated build directory, dependency directory, package tarball, or other
 regenerable artifact is committed to Git.

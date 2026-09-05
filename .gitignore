@@ -5,6 +5,10 @@ coverage/
 .env.*
 !.env.example
 *.log
+*.tgz
+*.bundle
+.cache/
+.npm/
 .DS_Store
 *.tsbuildinfo
 .idea/

@@ -1,9 +1,13 @@
 # Copy/paste installation prompts
 
-These prompts delegate installation to a coding agent while keeping the operation reviewable.
-Replace `[SERVER_DIR]` and `[ICEBERG_DIR]` with absolute paths before use. They intentionally
-install the documentation/source plane first, leave catalog credentials unset, and leave mutations
-disabled.
+For a single prompt that clones the repository and detects your client, use
+[Install with a coding agent](../README.md#install-with-a-coding-agent) in the README. It needs no
+path substitutions and supports documentation-only installation without an Iceberg checkout.
+
+The client-specific prompts below assume an existing local checkout. Replace `[SERVER_DIR]` and
+`[ICEBERG_DIR]` with absolute paths before use. They install the documentation/source plane first,
+leave catalog credentials unset, and leave mutations disabled. Omit the source-checkout instruction
+and `--source-dir` argument when only Javadoc access is needed.
 
 ## Codex
 

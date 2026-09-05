@@ -33,6 +33,39 @@ See [tool and workflow reference](docs/tools.md), [coverage matrix](docs/coverag
 [architecture](docs/architecture.md) for the exact surface. Supported workflows are listed in
 [user stories and use cases](docs/user-stories.md).
 
+## Install with a coding agent
+
+Paste this prompt into Codex, Claude Code, OpenCode, or another coding agent that can run commands
+and configure an MCP client. It needs no path substitutions. While the repository is private, the
+agent needs access through your existing GitHub sign-in.
+
+```text
+Install https://github.com/bsisduck/iceberg-mcp-server into the MCP client I am currently using.
+Detect the client from the current environment; ask me which client only if it is ambiguous.
+
+Clone the repository into a durable user-owned directory, or reuse a checkout of that origin
+without overwriting local changes. Use existing Git/GitHub authentication; if access is denied,
+report the missing access without asking me to paste a token. Read README.md, docs/client-setup.md,
+and package.json. Verify the required Node.js version and npm, then run npm ci and npm run check.
+
+Generate the setup with node dist/cli.js --print-client-config <client>, choosing codex,
+claude-code, opencode, gemini-cli, vscode, cursor, or generic-json. Use absolute executable paths.
+If an Iceberg source checkout is already identified in this workspace, add --source-dir with its
+absolute path and treat it as read-only. Otherwise install the documentation-only setup.
+
+Apply only this server's entry through the client's supported command or configuration file.
+Preserve other MCP servers and existing approval settings. Leave REST Catalog credentials unset
+and mutations disabled. For an unlisted client, check its official MCP configuration format
+before adapting the generic JSON.
+
+Start or reconnect the server, verify that it exposes 9 tools, and call iceberg_api_list_versions.
+Report the installed path and commit, the configuration changed, verification results, and how
+to remove only this server. If verification requires a client restart or a manual UI action,
+give the exact remaining step and do not claim that the connection was verified.
+```
+
+Client-specific alternatives are in [installation prompts](docs/installation-prompts.md).
+
 ## Requirements
 
 - Node.js 20.19 or newer (the CLI checks `process.versions.node` against `engines.node` at startup
@@ -46,6 +79,8 @@ See [tool and workflow reference](docs/tools.md), [coverage matrix](docs/coverag
 ## Quick start
 
 ```sh
+git clone https://github.com/bsisduck/iceberg-mcp-server.git
+cd iceberg-mcp-server
 npm ci
 npm run build
 node dist/cli.js --help
