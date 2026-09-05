@@ -10,6 +10,14 @@ operator documentation.
 
 The project is licensed under the MIT License.
 
+### Fixed
+
+- Javadoc disk entries now obey the current response limit before body allocation. An oversized
+  entry is fetched again without its cached validators, so fresh hits and `304` responses cannot
+  bypass a lowered `ICEBERG_JAVADOC_INDEX_MAX_BYTES`. Tests cover both paths, exact byte limits,
+  malformed entries, and recovery when a smaller replacement becomes available.
+- MCP evaluations use the server's configuration loader, including its current byte limits.
+
 ### Changed
 
 - The source index now walks every `src/main/java` root in the checkout instead of only

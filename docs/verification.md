@@ -1,10 +1,38 @@
 # Completion audit
 
-Audit date: 2026-09-01
+Initial audit date: 2026-09-01. Latest verification: 2026-09-05.
 
 This report records the implementation, onboarding follow-up, and verification boundary for version
 `0.1.0`. It is evidence for the repository state, not a claim that every deployment or third-party
 catalog is secure or conforming.
+
+## September 5 follow-up verification
+
+The cache limit regression found after the initial audit is fixed in commit `182f25c`. Disk reads
+apply the current document limit before allocating the body. Oversized entries are treated as misses
+and fetched without conditional validators, so a fresh hit or a `304` cannot bypass a lowered limit.
+Regression tests also cover exact byte boundaries, malformed entries, and a smaller upstream
+replacement. Commit `610c51d` updates the live evaluation verifier to use the server's configuration
+loader, including the current limits.
+
+The updated branch passed:
+
+- `npm run check`: formatting, lint, strict types, 343 tests across 18 files, coverage thresholds,
+  and production build;
+- 93.55% statement, 88.55% branch, 96.35% function, and 93.70% line coverage;
+- all 10 live MCP evaluations, all 7 client configuration renderers, and exact reconciliation of the
+  32 release and 35 development OpenAPI operations;
+- a 202-file package archive with MIT metadata and all 72 source-map references resolved;
+- installation of that archive in a temporary project, executable launch, `--version`, `--help`, and
+  package root-export loading;
+- a refreshed npm dependency audit with zero known vulnerabilities;
+- validation of 28 relative documentation links and both GitHub YAML files, with no tracked build
+  artifacts or high-confidence credential patterns in the working tree or Git history.
+
+The first live evaluation attempt encountered a network fetch failure. A direct endpoint check and
+the subsequent complete evaluation run succeeded. The client-application, dependency-license,
+external-link, and full prose-review observations below are dated September 1; the revised audit and
+cache documentation were reviewed again with the humanizer rules on September 5.
 
 ## Audited baselines
 
@@ -46,9 +74,9 @@ REST capability discovery is authoritative when endpoints are explicitly adverti
 empty endpoint list uses Iceberg's legacy default set, with the documented legacy view extension.
 Opaque pagination cursors are private to this server and bound to their originating query.
 
-## Verification gates
+## September 1 verification gates
 
-The final audit ran these repository gates successfully:
+The initial audit ran these repository gates successfully:
 
 - formatting, ESLint, strict TypeScript type checking, coverage-gated tests, and production build
   through `npm run check`;
@@ -147,9 +175,8 @@ The completion audit added or verified controls for:
   verifier on Node.js 20.19 and 24. The workflow uses read-only permissions and immutable action
   commit references.
 - Dependabot checks npm and GitHub Actions dependencies weekly.
-- All 18 Markdown files were reviewed with the humanizer rules. Commands, code blocks, links,
-  identifiers, measurements, and technical claims were preserved; the final documentation diff was
-  checked again after the release audit.
+- All 18 Markdown files were reviewed with the humanizer rules on September 1. Commands, code
+  blocks, links, identifiers, measurements, and technical claims were preserved.
 - The CI YAML was parsed locally and its commands passed on Node.js 22. A hosted CI result is only
   possible after the repository is published.
 

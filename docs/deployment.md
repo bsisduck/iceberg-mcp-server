@@ -145,6 +145,9 @@ written to a temporary name and renamed into place.
 - `nightly` revalidates after five minutes regardless of a longer configured TTL.
 - Only a body that downloaded, decoded, and stayed inside its byte bound is stored: error responses
   are never cached.
+- Reads apply the current document limit before allocating the cached body. An oversized entry is
+  treated as a miss and fetched without its validators, so neither a fresh cache hit nor a `304` can
+  bypass a lowered limit. A smaller replacement can still be downloaded and cached.
 - The cache is an optimization, never a dependency. If the directory cannot be written, the server
   logs one `javadoc.cache.disabled` warning and continues without it.
 - To clear it, delete the directory: `rm -rf ~/.cache/iceberg-mcp-server/javadoc`. It is rebuilt on

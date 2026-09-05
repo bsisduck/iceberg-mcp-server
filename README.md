@@ -154,7 +154,7 @@ troubleshooting.
 | ---------------------------------- | ----------------------------------------- | -------------------------------------------- |
 | `ICEBERG_JAVADOC_VERSION`          | `1.11.0`                                  | Default release semver or `nightly`          |
 | `ICEBERG_JAVADOC_BASE_URL`         | official Iceberg Javadoc root             | HTTPS operator-controlled root               |
-| `ICEBERG_JAVADOC_INDEX_MAX_BYTES`  | `32000000`                                | Search index download limit, 1 MB to 256 MB  |
+| `ICEBERG_JAVADOC_INDEX_MAX_BYTES`  | `32000000`                                | Search index byte limit, 1 MB to 256 MB      |
 | `ICEBERG_JAVADOC_CACHE`            | `on`                                      | `off` disables the on-disk Javadoc cache     |
 | `ICEBERG_JAVADOC_CACHE_DIR`        | `~/.cache/iceberg-mcp-server/javadoc`     | Javadoc cache directory                      |
 | `ICEBERG_JAVADOC_CACHE_TTL_MS`     | `86400000`                                | Age before an entry is revalidated           |
