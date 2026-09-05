@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
+import { mkdir, open, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -11,6 +12,7 @@ export const DEFAULT_JAVADOC_CACHE_TTL_MS = 24 * 60 * 60_000;
 export const DEFAULT_JAVADOC_CACHE_MAX_BYTES = 268_435_456;
 
 const ENTRY_SUFFIX = '.cache';
+const MAX_HEADER_BYTES = 16_384;
 /** Bumped when the on-disk layout changes; an entry written by another layout is ignored. */
 const ENTRY_LAYOUT = 1;
 
@@ -50,6 +52,8 @@ function isEntryHeader(value: unknown): value is EntryHeader {
   return (
     candidate.layout === ENTRY_LAYOUT &&
     typeof candidate.length === 'number' &&
+    Number.isSafeInteger(candidate.length) &&
+    candidate.length >= 0 &&
     typeof candidate.storedAt === 'number' &&
     typeof candidate.url === 'string' &&
     typeof candidate.version === 'string'
@@ -90,39 +94,59 @@ export class JavadocDiskCache {
     return this.#ttlMs;
   }
 
-  public async read(version: string, url: string): Promise<CachedDocument | undefined> {
+  public async read(
+    version: string,
+    url: string,
+    maxBodyBytes = this.#maxBytes,
+  ): Promise<CachedDocument | undefined> {
     if (this.#disabled) {
       return undefined;
     }
-    let raw: Buffer;
+    let file: FileHandle | undefined;
     try {
-      raw = await readFile(this.#entryPath(version, url));
+      file = await open(this.#entryPath(version, url), 'r');
+      const metadata = await file.stat();
+      if (
+        !metadata.isFile() ||
+        metadata.size > this.#maxBytes ||
+        metadata.size > maxBodyBytes + MAX_HEADER_BYTES + 1
+      ) {
+        return undefined;
+      }
+      // Inspect a bounded header before allocating or reading the cached body.
+      const prefix = Buffer.alloc(Math.min(metadata.size, MAX_HEADER_BYTES + 1));
+      const { bytesRead } = await file.read(prefix, 0, prefix.byteLength, 0);
+      const newline = prefix.subarray(0, bytesRead).indexOf(0x0a);
+      if (newline <= 0) {
+        return undefined;
+      }
+      const header: unknown = JSON.parse(prefix.subarray(0, newline).toString('utf8'));
+      if (!isEntryHeader(header) || header.url !== url || header.version !== version) {
+        return undefined;
+      }
+      if (header.length > maxBodyBytes || metadata.size !== newline + 1 + header.length) {
+        return undefined;
+      }
+      const body = Buffer.alloc(header.length);
+      let offset = 0;
+      while (offset < body.byteLength) {
+        const read = await file.read(body, offset, body.byteLength - offset, newline + 1 + offset);
+        if (read.bytesRead === 0) {
+          return undefined;
+        }
+        offset += read.bytesRead;
+      }
+      return {
+        body,
+        etag: header.etag,
+        lastModified: header.lastModified,
+        storedAt: header.storedAt,
+      };
     } catch {
       return undefined;
+    } finally {
+      await file?.close().catch(() => undefined);
     }
-    const newline = raw.indexOf(0x0a);
-    if (newline <= 0 || raw.byteLength > this.#maxBytes) {
-      return undefined;
-    }
-    let header: unknown;
-    try {
-      header = JSON.parse(raw.subarray(0, newline).toString('utf8'));
-    } catch {
-      return undefined;
-    }
-    const body = raw.subarray(newline + 1);
-    if (!isEntryHeader(header) || header.url !== url || header.version !== version) {
-      return undefined;
-    }
-    if (body.byteLength !== header.length) {
-      return undefined;
-    }
-    return {
-      body,
-      etag: header.etag,
-      lastModified: header.lastModified,
-      storedAt: header.storedAt,
-    };
   }
 
   public async write(version: string, url: string, document: CachedDocument): Promise<void> {

@@ -25,11 +25,13 @@ const indexBodies = new Map<string, string>([
 ]);
 
 /** Serves the three index files with an `ETag`, answering `304` once a validator is presented. */
-function indexHost(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
+function indexHost(
+  bodies: ReadonlyMap<string, string> = indexBodies,
+): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
   return vi.fn<typeof globalThis.fetch>((input, init) => {
     const url = new URL(input instanceof Request ? input.url : input);
     const filename = url.pathname.split('/').at(-1) ?? '';
-    const body = indexBodies.get(filename);
+    const body = bodies.get(filename);
     if (body === undefined) {
       return Promise.resolve(new Response('not found', { status: 404 }));
     }
@@ -218,6 +220,54 @@ describe('JavadocProvider', (): void => {
     );
     expect(conditional).toHaveLength(3);
   });
+
+  it.each([60_000, 0])(
+    'enforces a lowered index limit after restarting with cache TTL %i',
+    async (ttlMs): Promise<void> => {
+      const directory = await cacheDirectory();
+      const bodies = new Map(indexBodies);
+      const filename = 'member-search-index.js';
+      bodies.set(filename, bodies.get(filename)!.replace('];', `${' '.repeat(1_010_000)}];`));
+      const fetch = indexHost(bodies);
+      const warn = vi.fn<(event: string, details: Record<string, unknown>) => void>();
+      const options = {
+        config: {
+          baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
+          cache: { directory, maxBytes: 10_000_000, ttlMs },
+          indexMaxBytes: 2_000_000,
+          version: '1.11.0',
+        },
+        fetch,
+        reporter: { report: vi.fn(), warn },
+        requestTimeoutMs: 1_000,
+      };
+      await new JavadocProvider(options).loadIndex('1.11.0');
+      fetch.mockClear();
+
+      const restarted = new JavadocProvider({
+        ...options,
+        config: { ...options.config, indexMaxBytes: 1_000_000 },
+      });
+      await expect(restarted.loadIndex('1.11.0')).rejects.toMatchObject({ name: 'LimitError' });
+      expect(warn).toHaveBeenCalledWith('javadoc.index.too_large', {
+        filename,
+        maxBytes: 1_000_000,
+      });
+      const memberRequests = fetch.mock.calls.filter(([input]) =>
+        new URL(input instanceof Request ? input.url : input).pathname.endsWith(filename),
+      );
+      expect(memberRequests).toHaveLength(1);
+      expect(new Headers(memberRequests[0]?.[1]?.headers).has('if-none-match')).toBe(false);
+
+      // A smaller upstream replacement can still be loaded with the same cache and limit.
+      bodies.set(filename, indexBodies.get(filename)!);
+      const recovered = await new JavadocProvider({
+        ...options,
+        config: { ...options.config, indexMaxBytes: 1_000_000 },
+      }).loadIndex('1.11.0');
+      expect(recovered.members[0]?.label).toBe('schema()');
+    },
+  );
 
   it('writes nothing when the cache is disabled', async (): Promise<void> => {
     const directory = await cacheDirectory();

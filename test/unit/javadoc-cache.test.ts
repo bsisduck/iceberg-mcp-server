@@ -78,6 +78,57 @@ describe('JavadocDiskCache', (): void => {
     ).toBeUndefined();
   });
 
+  it('applies the caller limit to body bytes while allowing an exact-boundary hit', async (): Promise<void> => {
+    const directory = await cacheDirectory();
+    const cache = new JavadocDiskCache({ config: { directory, maxBytes: 1_000, ttlMs: 60_000 } });
+    const url = 'https://iceberg.apache.org/javadoc/1.11.0/type-search-index.js';
+    const bytes = body('éé');
+    await cache.write('1.11.0', url, {
+      body: bytes,
+      etag: '"abc"',
+      lastModified: undefined,
+      storedAt: Date.now(),
+    });
+
+    expect(await cache.read('1.11.0', url, 3)).toBeUndefined();
+    expect((await cache.read('1.11.0', url, 4))?.body).toEqual(Buffer.from(bytes));
+    expect(await cache.read('1.11.0', url, 0)).toBeUndefined();
+
+    await cache.write('1.11.0', url, {
+      body: body(''),
+      etag: undefined,
+      lastModified: undefined,
+      storedAt: Date.now(),
+    });
+    expect((await cache.read('1.11.0', url, 0))?.body.byteLength).toBe(0);
+  });
+
+  it('ignores oversized files, unbounded headers, and invalid declared lengths', async (): Promise<void> => {
+    const directory = await cacheDirectory();
+    const cache = new JavadocDiskCache({ config: { directory, maxBytes: 100_000, ttlMs: 60_000 } });
+    const url = 'https://iceberg.apache.org/javadoc/1.11.0/member-search-index.js';
+    await cache.write('1.11.0', url, {
+      body: body('body'),
+      etag: undefined,
+      lastModified: undefined,
+      storedAt: Date.now(),
+    });
+    const [entry] = await readdir(directory);
+    const file = path.join(directory, entry!);
+    const header = { layout: 1, length: 4, storedAt: Date.now(), url, version: '1.11.0' };
+
+    for (const length of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await writeFile(file, `${JSON.stringify({ ...header, length })}\nbody`);
+      expect(await cache.read('1.11.0', url, 4)).toBeUndefined();
+    }
+    await writeFile(file, `${' '.repeat(16_385)}\nbody`);
+    expect(await cache.read('1.11.0', url)).toBeUndefined();
+    await writeFile(file, `${JSON.stringify(header)}\n${'x'.repeat(20_000)}`);
+    expect(await cache.read('1.11.0', url, 4)).toBeUndefined();
+    await writeFile(file, 'x'.repeat(100_001));
+    expect(await cache.read('1.11.0', url)).toBeUndefined();
+  });
+
   it('treats a truncated or foreign entry as a miss and refuses an oversized body', async (): Promise<void> => {
     const directory = await cacheDirectory();
     const cache = new JavadocDiskCache({ config: { directory, maxBytes: 1_000, ttlMs: 60_000 } });

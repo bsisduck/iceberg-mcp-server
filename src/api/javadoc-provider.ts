@@ -203,7 +203,7 @@ export class JavadocProvider {
     readonly version: string;
   }): Promise<string> {
     const key = options.url.href;
-    const cached = await this.#cache?.read(options.version, key);
+    const cached = await this.#cache?.read(options.version, key, options.maxBytes);
     if (cached !== undefined && Date.now() - cached.storedAt < this.#cacheTtlMs(options.version)) {
       return decodeBody(cached.body, options.label);
     }
