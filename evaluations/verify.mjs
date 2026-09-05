@@ -2,35 +2,24 @@ import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
+import { loadConfig } from '../dist/config.js';
 import { createServices } from '../dist/services.js';
 import { startHttp } from '../dist/transport/http.js';
 
 const EXPECTED_SOURCE_REVISION = '6164440663e3f7b1bae92a1a710ca5233755cd7d';
 const sourceDir = await realpath(fileURLToPath(new URL('../../iceberg/', import.meta.url)));
+const loadedConfig = await loadConfig({
+  ICEBERG_JAVADOC_CACHE: 'off',
+  ICEBERG_JAVADOC_VERSION: '1.11.0',
+  ICEBERG_MAX_RESPONSE_CHARS: '100000',
+  ICEBERG_MCP_ALLOWED_ORIGINS: 'http://127.0.0.1',
+  ICEBERG_MCP_TRANSPORT: 'http',
+  ICEBERG_REQUEST_TIMEOUT_MS: '30000',
+  ICEBERG_SOURCE_DIR: sourceDir,
+});
 const config = {
-  catalog: {
-    allowMutations: false,
-    oauth2Credential: undefined,
-    oauth2Uri: undefined,
-    token: undefined,
-    uri: undefined,
-    warehouse: undefined,
-  },
-  http: {
-    allowedOrigins: ['http://127.0.0.1'],
-    authToken: undefined,
-    host: '127.0.0.1',
-    maxRequestBytes: 1_048_576,
-    port: 0,
-  },
-  javadoc: {
-    baseUrl: new URL('https://iceberg.apache.org/javadoc/'),
-    version: '1.11.0',
-  },
-  limits: { maxResponseChars: 100_000, requestTimeoutMs: 30_000 },
-  logLevel: 'info',
-  sourceDir,
-  transport: 'http',
+  ...loadedConfig,
+  http: { ...loadedConfig.http, port: 0 },
 };
 const reporter = {
   report(error, context) {
