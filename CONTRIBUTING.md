@@ -38,6 +38,16 @@ The OpenAPI verifier compares the implementation with the current document in th
 npm run verify:openapi
 ```
 
+## TypeScript upgrades
+
+The current `typescript-eslint` dependency supports TypeScript `>=4.8.4 <6.1.0`. Dependabot ignores
+TypeScript `>=6.1.0` in `.github/dependabot.yml` while continuing to propose compatible patch
+updates.
+
+Before raising that limit, check the lint tooling's peer dependencies and upgrade it if needed.
+Update the ignore range alongside the compiler and lockfile, then run `npm ci` and `npm run check`.
+Do not bypass a peer dependency conflict with `--force` or `--legacy-peer-deps`.
+
 ## Change requirements
 
 - Add tests for new behavior and regression tests for bug fixes.
