@@ -5,6 +5,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # typescript-eslint 8.69.0 requires TypeScript >=4.8.4 <6.1.0.
+      # Revisit this bound when upgrading the lint tooling; keep compatible patches enabled.
+      - dependency-name: typescript
+        versions: ['>=6.1.0']
 
   - package-ecosystem: github-actions
     directory: /
